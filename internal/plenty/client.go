@@ -50,6 +50,15 @@ type Client struct {
 	dryRun     bool
 	logger     *slog.Logger
 	tokenStore *TokenStore
+
+	// Entity services — initialized in NewClient.
+	Categories *CategoryService
+	Attributes *AttributeService
+	Properties *PropertyService
+	Items      *ItemService
+	Variations *VariationService
+	Images     *ImageService
+	Texts      *TextService
 }
 
 // NewClient creates a new PlentyONE API client with the full RoundTripper chain:
@@ -85,7 +94,7 @@ func NewClient(cfg ClientConfig) *Client {
 		TokenStore: tokenStore,
 	}
 
-	return &Client{
+	c := &Client{
 		httpClient: &http.Client{
 			Transport: transport,
 			Timeout:   cfg.Timeout,
@@ -95,6 +104,17 @@ func NewClient(cfg ClientConfig) *Client {
 		logger:     cfg.Logger,
 		tokenStore: tokenStore,
 	}
+
+	// Initialize entity services.
+	c.Categories = &CategoryService{client: c}
+	c.Attributes = &AttributeService{client: c}
+	c.Properties = &PropertyService{client: c}
+	c.Items = &ItemService{client: c}
+	c.Variations = &VariationService{client: c}
+	c.Images = &ImageService{client: c}
+	c.Texts = &TextService{client: c}
+
+	return c
 }
 
 // doJSON performs an HTTP request and decodes the JSON response into the type T.
