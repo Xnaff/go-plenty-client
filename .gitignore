@@ -1,0 +1,19 @@
+.planning/
+
+# Binary output
+bin/
+
+# Environment files
+.env
+
+# Executables
+*.exe
+
+# sqlc generated code
+internal/storage/queries/
+
+# Air hot reload
+tmp/
+
+# OS files
+.DS_Store
