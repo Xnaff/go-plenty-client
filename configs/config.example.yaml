@@ -25,3 +25,15 @@ pipeline:
   concurrency: 5           # Max concurrent API requests per stage
   batch_size: 50           # Items per batch
   rate_limit_per_sec: 2.0  # PlentyONE API rate limit (requests/second)
+
+# AI generation settings
+ai:
+  provider: "mock"           # AI provider: mock, openai
+  api_key: ""                # API key (use env var PLENTYONE_AI_API_KEY)
+  model: "gpt-4o-mini"      # Model name (provider-specific)
+  languages:                 # Languages to generate text in
+    - "en"
+    - "de"
+    - "es"
+    - "fr"
+    - "it"

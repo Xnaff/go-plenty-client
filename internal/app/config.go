@@ -13,6 +13,15 @@ type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
 	Log      LogConfig      `mapstructure:"log"`
 	Pipeline PipelineConfig `mapstructure:"pipeline"`
+	AI       AIConfig       `mapstructure:"ai"`
+}
+
+// AIConfig holds AI generation provider settings.
+type AIConfig struct {
+	Provider  string   `mapstructure:"provider"`  // AI provider: mock, openai
+	APIKey    string   `mapstructure:"api_key"`   // API key (use env var PLENTYONE_AI_API_KEY)
+	Model     string   `mapstructure:"model"`     // Model name (provider-specific)
+	Languages []string `mapstructure:"languages"` // Languages to generate text in
 }
 
 // ServerConfig holds HTTP server settings.
@@ -76,6 +85,9 @@ func LoadConfig(cfgFile string) (*Config, error) {
 	viper.SetDefault("pipeline.concurrency", 5)
 	viper.SetDefault("pipeline.batch_size", 50)
 	viper.SetDefault("pipeline.rate_limit_per_sec", 2.0)
+	viper.SetDefault("ai.provider", "mock")
+	viper.SetDefault("ai.model", "gpt-4o-mini")
+	viper.SetDefault("ai.languages", []string{"en", "de", "es", "fr", "it"})
 
 	// Environment variables: PLENTYONE_DATABASE_HOST, etc.
 	viper.SetEnvPrefix("PLENTYONE")
