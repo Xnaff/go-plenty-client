@@ -1,0 +1,16 @@
+DROP TABLE IF EXISTS property_texts;
+DROP TABLE IF EXISTS texts;
+DROP TABLE IF EXISTS images;
+DROP TABLE IF EXISTS variation_properties;
+DROP TABLE IF EXISTS variation_attributes;
+DROP TABLE IF EXISTS variations;
+DROP TABLE IF EXISTS product_categories;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS properties;
+DROP TABLE IF EXISTS attribute_values;
+DROP TABLE IF EXISTS attributes;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS entity_mappings;
+DROP TABLE IF EXISTS stage_states;
+DROP TABLE IF EXISTS pipeline_runs;
+DROP TABLE IF EXISTS jobs;
