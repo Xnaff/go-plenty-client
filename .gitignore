@@ -9,9 +9,6 @@ bin/
 # Executables
 *.exe
 
-# sqlc generated code
-internal/storage/queries/
-
 # Air hot reload
 tmp/
 

@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/janemig/plentyone/internal/app"
+	"github.com/janemig/plentyone/internal/storage"
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 )
@@ -55,8 +57,62 @@ var versionCmd = &cobra.Command{
 var migrateCmd = &cobra.Command{
 	Use:   "migrate",
 	Short: "Run database migrations",
+}
+
+var migrateUpCmd = &cobra.Command{
+	Use:   "up",
+	Short: "Apply all pending migrations",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("migrate not yet implemented")
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			fmt.Printf("DSN: %s\n", storage.MaskedDSN(cfg.Database))
+			fmt.Println("(dry-run: no migrations applied)")
+			return nil
+		}
+
+		slog.Info("connecting to database", slog.String("dsn", storage.MaskedDSN(cfg.Database)))
+
+		db, err := storage.NewDB(cfg.Database)
+		if err != nil {
+			return fmt.Errorf("connecting to database: %w", err)
+		}
+		defer db.Close()
+
+		slog.Info("applying migrations")
+		if err := storage.RunMigrations(db); err != nil {
+			return fmt.Errorf("applying migrations: %w", err)
+		}
+
+		slog.Info("migrations applied successfully")
+		return nil
+	},
+}
+
+var migrateDownCmd = &cobra.Command{
+	Use:   "down",
+	Short: "Rollback the most recent migration",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			fmt.Printf("DSN: %s\n", storage.MaskedDSN(cfg.Database))
+			fmt.Println("(dry-run: no rollback performed)")
+			return nil
+		}
+
+		slog.Info("connecting to database", slog.String("dsn", storage.MaskedDSN(cfg.Database)))
+
+		db, err := storage.NewDB(cfg.Database)
+		if err != nil {
+			return fmt.Errorf("connecting to database: %w", err)
+		}
+		defer db.Close()
+
+		slog.Info("rolling back migration")
+		if err := storage.RollbackMigration(db); err != nil {
+			return fmt.Errorf("rolling back migration: %w", err)
+		}
+
+		slog.Info("migration rolled back successfully")
 		return nil
 	},
 }
@@ -65,4 +121,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(migrateCmd)
+
+	migrateCmd.AddCommand(migrateUpCmd)
+	migrateCmd.AddCommand(migrateDownCmd)
+
+	migrateCmd.PersistentFlags().Bool("dry-run", false, "print DSN and exit without running migrations")
 }
