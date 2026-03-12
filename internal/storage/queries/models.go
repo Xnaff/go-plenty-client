@@ -50,6 +50,17 @@ type EntityMapping struct {
 	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
+type OauthToken struct {
+	ID           int64     `json:"id"`
+	ShopUrl      string    `json:"shop_url"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	TokenType    string    `json:"token_type"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 type Image struct {
 	ID          int64          `json:"id"`
 	ProductID   int64          `json:"product_id"`

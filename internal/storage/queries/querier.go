@@ -10,6 +10,10 @@ import (
 
 type Querier interface {
 	CountMappingsByStatus(ctx context.Context, runID int64) ([]CountMappingsByStatusRow, error)
+	// OAuth Tokens
+	DeleteOAuthToken(ctx context.Context, shopUrl string) error
+	GetOAuthToken(ctx context.Context, shopUrl string) (OauthToken, error)
+	UpsertOAuthToken(ctx context.Context, arg UpsertOAuthTokenParams) error
 	// Categories
 	CreateCategory(ctx context.Context, arg CreateCategoryParams) (int64, error)
 	// Entity Mappings

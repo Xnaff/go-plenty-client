@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 )
 
 const countMappingsByStatus = `-- name: CountMappingsByStatus :many
@@ -45,6 +46,67 @@ func (q *Queries) CountMappingsByStatus(ctx context.Context, runID int64) ([]Cou
 		return nil, err
 	}
 	return items, nil
+}
+
+const deleteOAuthToken = `-- name: DeleteOAuthToken :exec
+DELETE FROM oauth_tokens
+WHERE shop_url = ?
+`
+
+func (q *Queries) DeleteOAuthToken(ctx context.Context, shopUrl string) error {
+	_, err := q.db.ExecContext(ctx, deleteOAuthToken, shopUrl)
+	return err
+}
+
+const getOAuthToken = `-- name: GetOAuthToken :one
+SELECT id, shop_url, access_token, refresh_token, token_type, expires_at, created_at, updated_at
+FROM oauth_tokens
+WHERE shop_url = ?
+`
+
+func (q *Queries) GetOAuthToken(ctx context.Context, shopUrl string) (OauthToken, error) {
+	row := q.db.QueryRowContext(ctx, getOAuthToken, shopUrl)
+	var i OauthToken
+	err := row.Scan(
+		&i.ID,
+		&i.ShopUrl,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.TokenType,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertOAuthToken = `-- name: UpsertOAuthToken :exec
+INSERT INTO oauth_tokens (shop_url, access_token, refresh_token, token_type, expires_at)
+VALUES (?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+    access_token = VALUES(access_token),
+    refresh_token = VALUES(refresh_token),
+    token_type = VALUES(token_type),
+    expires_at = VALUES(expires_at)
+`
+
+type UpsertOAuthTokenParams struct {
+	ShopUrl      string    `json:"shop_url"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	TokenType    string    `json:"token_type"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
+func (q *Queries) UpsertOAuthToken(ctx context.Context, arg UpsertOAuthTokenParams) error {
+	_, err := q.db.ExecContext(ctx, upsertOAuthToken,
+		arg.ShopUrl,
+		arg.AccessToken,
+		arg.RefreshToken,
+		arg.TokenType,
+		arg.ExpiresAt,
+	)
+	return err
 }
 
 const createCategory = `-- name: CreateCategory :execlastid

@@ -165,3 +165,23 @@ SELECT id, product_id, source_url, local_path, position, source_type, attributio
 FROM images
 WHERE product_id = ?
 ORDER BY position;
+
+-- OAuth Tokens
+
+-- name: UpsertOAuthToken :exec
+INSERT INTO oauth_tokens (shop_url, access_token, refresh_token, token_type, expires_at)
+VALUES (?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+    access_token = VALUES(access_token),
+    refresh_token = VALUES(refresh_token),
+    token_type = VALUES(token_type),
+    expires_at = VALUES(expires_at);
+
+-- name: GetOAuthToken :one
+SELECT id, shop_url, access_token, refresh_token, token_type, expires_at, created_at, updated_at
+FROM oauth_tokens
+WHERE shop_url = ?;
+
+-- name: DeleteOAuthToken :exec
+DELETE FROM oauth_tokens
+WHERE shop_url = ?;
