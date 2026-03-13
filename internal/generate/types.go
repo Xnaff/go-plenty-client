@@ -55,6 +55,21 @@ type PropertyValue struct {
 	SelectionValue string   `json:"selectionValue,omitempty"`
 }
 
+// PriceRequest describes what price to generate for a product.
+type PriceRequest struct {
+	ProductType string // e.g., "electronics", "food", "fashion"
+	ProductName string // Product name for context
+	Category    string // Category context for pricing
+	Niche       string // Niche context for pricing
+	Currency    string // Target currency (default "EUR")
+}
+
+// PriceResult is the structured output from price generation.
+type PriceResult struct {
+	Price    float64 `json:"price"`
+	Currency string  `json:"currency"`
+}
+
 // ImageRequest describes what product image to generate.
 type ImageRequest struct {
 	ProductName string // Base product name

@@ -8,6 +8,8 @@ type Variation struct {
 	ProductID  int64                `json:"product_id"`
 	Name       string               `json:"name"`
 	SKU        string               `json:"sku"`
+	Price      float64              `json:"price"`
+	Currency   string               `json:"currency"`
 	Attributes []VariationAttribute `json:"attributes"`
 	Properties []VariationProperty  `json:"properties"`
 	Status     EntityStatus         `json:"status"`

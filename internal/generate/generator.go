@@ -18,6 +18,10 @@ type Generator interface {
 	// get values from allowed options.
 	GeneratePropertyValues(ctx context.Context, req PropertyValueRequest) (*PropertyValues, error)
 
+	// GeneratePrice generates a realistic retail price for a product
+	// based on its type, name, category, and niche.
+	GeneratePrice(ctx context.Context, req PriceRequest) (*PriceResult, error)
+
 	// Name returns the provider name for logging and configuration purposes.
 	Name() string
 }

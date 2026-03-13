@@ -121,3 +121,51 @@ func (p *Provider) GeneratePropertyValues(ctx context.Context, req generate.Prop
 
 	return &result, nil
 }
+
+// GeneratePrice generates a realistic retail price for a product using the
+// OpenAI Responses API with structured output.
+func (p *Provider) GeneratePrice(ctx context.Context, req generate.PriceRequest) (*generate.PriceResult, error) {
+	userPrompt := generate.BuildPricePrompt(req)
+
+	// Use English system prompt (prices are language-independent).
+	systemPrompt := generate.SystemPromptForLanguage("en")
+
+	p.logger.Debug("generating price",
+		"provider", "openai",
+		"model", p.model,
+		"product_type", req.ProductType,
+		"currency", req.Currency,
+	)
+
+	resp, err := p.client.Responses.New(ctx, responses.ResponseNewParams{
+		Model:        p.model,
+		Instructions: oai.String(systemPrompt),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfString: oai.String(userPrompt),
+		},
+		Text: responses.ResponseTextConfigParam{
+			Format: responses.ResponseFormatTextConfigParamOfJSONSchema(
+				"price_result",
+				priceResultSchema,
+			),
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("openai generate price: %w", err)
+	}
+
+	var result generate.PriceResult
+	if err := json.Unmarshal([]byte(resp.OutputText()), &result); err != nil {
+		return nil, fmt.Errorf("openai parse price: %w", err)
+	}
+
+	p.logger.Debug("price generated",
+		"provider", "openai",
+		"model", p.model,
+		"product_type", req.ProductType,
+		"price", result.Price,
+		"currency", result.Currency,
+	)
+
+	return &result, nil
+}

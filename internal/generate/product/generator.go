@@ -44,6 +44,8 @@ type GeneratedProduct struct {
 	Texts         map[string]*generate.ProductTexts    // lang -> product texts
 	PropertyTexts map[string]*generate.PropertyValues   // lang -> text-type property values
 	Properties    *generate.PropertyValues              // non-text property values (language-independent)
+	Price         float64                               // AI-generated price
+	Currency      string                                // Price currency (e.g., "EUR")
 	Warnings      []validate.ValidationError
 }
 
@@ -82,7 +84,31 @@ func (g *Generator) Generate(ctx context.Context, req GenerationRequest) (*Gener
 		result.Warnings = append(result.Warnings, warnings...)
 	}
 
-	// 2. Handle properties if provided.
+	// 2. Generate price.
+	priceReq := generate.PriceRequest{
+		ProductType: req.ProductType,
+		ProductName: req.ProductName,
+		Category:    req.Category,
+		Niche:       req.Niche,
+		Currency:    "EUR",
+	}
+	priceResult, err := g.provider.GeneratePrice(ctx, priceReq)
+	if err != nil {
+		return nil, fmt.Errorf("generate price: %w", err)
+	}
+	result.Price = priceResult.Price
+	result.Currency = priceResult.Currency
+	if result.Currency == "" {
+		result.Currency = "EUR"
+	}
+
+	g.logger.Info("generated price",
+		"provider", g.provider.Name(),
+		"price", result.Price,
+		"currency", result.Currency,
+	)
+
+	// 3. Handle properties if provided.
 	if len(req.Properties) > 0 {
 		// Split properties by type.
 		var textProps []generate.PropertySpec

@@ -328,17 +328,21 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Create default variation.
+		// Create default variation with AI-generated price.
 		skuPrefix := niche
 		if len(skuPrefix) > 3 {
 			skuPrefix = skuPrefix[:3]
+		}
+		variationCurrency := result.Currency
+		if variationCurrency == "" {
+			variationCurrency = "EUR"
 		}
 		if _, err := q.CreateVariation(ctx, queries.CreateVariationParams{
 			ProductID:  productID,
 			Name:       "Default",
 			Sku:        fmt.Sprintf("%s-%d", skuPrefix, productID),
-			Price:      sql.NullString{String: "0.00", Valid: true},
-			Currency:   "EUR",
+			Price:      sql.NullString{String: fmt.Sprintf("%.2f", result.Price), Valid: true},
+			Currency:   variationCurrency,
 			Weight:     sql.NullString{},
 			WeightUnit: "",
 			Barcode:    "",

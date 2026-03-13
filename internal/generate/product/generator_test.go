@@ -39,6 +39,20 @@ func TestGenerate_AllLanguages(t *testing.T) {
 		t.Fatalf("expected texts for %d languages, got %d", len(generate.SupportedLanguages), len(result.Texts))
 	}
 
+	// Verify price generation.
+	if result.Price == 0 {
+		t.Error("expected non-zero price")
+	}
+	if result.Currency == "" {
+		t.Error("expected non-empty currency")
+	}
+	if result.Price != 29.99 {
+		t.Errorf("expected mock price 29.99, got %.2f", result.Price)
+	}
+	if result.Currency != "EUR" {
+		t.Errorf("expected currency EUR, got %s", result.Currency)
+	}
+
 	for _, lang := range generate.SupportedLanguages {
 		texts, ok := result.Texts[lang]
 		if !ok {

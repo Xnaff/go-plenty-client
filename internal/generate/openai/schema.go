@@ -31,3 +31,7 @@ var productTextsSchema = generateSchema[generate.ProductTexts]()
 // propertyValuesSchema is the JSON schema for structured output of property values.
 // Generated once at package initialization from the Go struct.
 var propertyValuesSchema = generateSchema[generate.PropertyValues]()
+
+// priceResultSchema is the JSON schema for structured output of price generation.
+// Generated once at package initialization from the Go struct.
+var priceResultSchema = generateSchema[generate.PriceResult]()

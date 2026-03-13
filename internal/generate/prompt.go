@@ -58,6 +58,36 @@ Focus on accuracy, natural language, and e-commerce conversion.`)
 	return b.String()
 }
 
+// BuildPricePrompt constructs the user prompt for product price generation.
+func BuildPricePrompt(req PriceRequest) string {
+	var b strings.Builder
+
+	currency := req.Currency
+	if currency == "" {
+		currency = "EUR"
+	}
+
+	b.WriteString("Generate a realistic retail price for the following product:\n\n")
+	b.WriteString(fmt.Sprintf("Product Type: %s\n", req.ProductType))
+	if req.ProductName != "" {
+		b.WriteString(fmt.Sprintf("Product Name: %s\n", req.ProductName))
+	}
+	if req.Category != "" {
+		b.WriteString(fmt.Sprintf("Category: %s\n", req.Category))
+	}
+	if req.Niche != "" {
+		b.WriteString(fmt.Sprintf("Niche: %s\n", req.Niche))
+	}
+	b.WriteString(fmt.Sprintf("Currency: %s\n", currency))
+
+	b.WriteString(`
+Consider the product category and typical market prices. Return a realistic retail price, not wholesale.
+For EUR currency, use prices that look natural (e.g., 29.99, 149.00, 7.50).
+The price should be appropriate for an e-commerce store selling this type of product.`)
+
+	return b.String()
+}
+
 // BuildPropertyValuePrompt constructs the user prompt for property value generation.
 func BuildPropertyValuePrompt(req PropertyValueRequest) string {
 	var b strings.Builder

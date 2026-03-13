@@ -58,6 +58,18 @@ func (p *Provider) GeneratePropertyValues(_ context.Context, req generate.Proper
 	return &generate.PropertyValues{Values: values}, nil
 }
 
+// GeneratePrice returns a deterministic price for testing.
+func (p *Provider) GeneratePrice(_ context.Context, req generate.PriceRequest) (*generate.PriceResult, error) {
+	currency := req.Currency
+	if currency == "" {
+		currency = "EUR"
+	}
+	return &generate.PriceResult{
+		Price:    29.99,
+		Currency: currency,
+	}, nil
+}
+
 // GenerateProductImage returns a deterministic 1x1 transparent PNG for testing.
 func (p *Provider) GenerateProductImage(_ context.Context, req generate.ImageRequest) (*generate.ImageResult, error) {
 	return &generate.ImageResult{
