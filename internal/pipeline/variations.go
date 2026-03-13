@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/janemig/plentyone/internal/domain"
 	"github.com/janemig/plentyone/internal/plenty"
@@ -12,19 +13,21 @@ import (
 )
 
 // VariationStage creates additional variations (beyond the main variation) in
-// PlentyONE for each product. The main variation is created together with the
-// item in the products stage, so this stage handles only the 2nd+ variations.
+// PlentyONE for each product, then sets sales prices on ALL variations (main +
+// additional) that have non-zero prices in the local DB.
 //
-// For each additional variation it resolves the parent item's PlentyONE ID from
-// entity_mappings and calls Variations.Create.
+// The main variation is created together with the item in the products stage,
+// so this stage handles only the 2nd+ variations for creation. Price setting
+// applies to all variations.
 //
 // TODO: Attribute value linking for variations. Currently variations are created
 // without VariationAttributeValues. To add attribute value linking, query
 // variation_attributes and resolve PlentyONE attribute/value IDs.
 type VariationStage struct {
-	client *plenty.Client
-	db     *queries.Queries
-	cfg    PipelineConfig
+	client              *plenty.Client
+	db                  *queries.Queries
+	cfg                 PipelineConfig
+	defaultSalesPriceID int64 // cached after first lookup
 }
 
 // NewVariationStage creates a VariationStage ready for registration.
@@ -43,17 +46,28 @@ type variationItem struct {
 	product   queries.Product
 }
 
-// Execute creates additional variations for every product in the job.
-// The main variation (first per product) is expected to already exist from the
-// products stage; only additional variations are processed here.
+// priceItem pairs a local variation with the PlentyONE IDs needed for price setting.
+type priceItem struct {
+	variation       queries.Variation
+	plentyItemID    int64
+	plentyVarID     int64
+	salesPriceID    int64
+	price           float64
+}
+
+// Execute creates additional variations for every product in the job, then
+// sets sales prices on all variations that have non-zero prices.
 func (s *VariationStage) Execute(ctx context.Context, rc *RunContext) error {
 	products, err := s.db.ListProductsByJob(ctx, rc.JobID)
 	if err != nil {
 		return fmt.Errorf("listing products for job %d: %w", rc.JobID, err)
 	}
 
-	// Collect all additional variations across all products.
-	var items []variationItem
+	// Phase 1: Create additional variations (index 1+).
+	var createItems []variationItem
+	// Also collect ALL variations for price setting in Phase 2.
+	var allVariations []variationItem
+
 	for _, product := range products {
 		variations, err := s.db.ListVariationsByProduct(ctx, product.ID)
 		if err != nil {
@@ -64,31 +78,153 @@ func (s *VariationStage) Execute(ctx context.Context, rc *RunContext) error {
 			continue
 		}
 
-		// Skip the first variation (main variation, created with the item).
-		// Additional variations start from index 1.
-		for i := 1; i < len(variations); i++ {
-			items = append(items, variationItem{
-				variation: variations[i],
-				product:   product,
-			})
+		for i, v := range variations {
+			item := variationItem{variation: v, product: product}
+			allVariations = append(allVariations, item)
+			if i > 0 {
+				// Additional variations need creation.
+				createItems = append(createItems, item)
+			}
 		}
 	}
 
-	if len(items) == 0 {
-		rc.Logger.Info("no additional variations to process")
+	// Phase 1: Create additional variations.
+	if len(createItems) > 0 {
+		succeeded, failed := ProcessItems(ctx, createItems, s.cfg.Concurrency, func(ctx context.Context, item variationItem) error {
+			return s.processVariation(ctx, rc, item)
+		})
+
+		rc.Logger.Info("variation creation complete",
+			slog.Int("succeeded", succeeded),
+			slog.Int("failed", failed),
+		)
+	} else {
+		rc.Logger.Info("no additional variations to create")
+	}
+
+	// Phase 2: Set prices on all variations with non-zero prices.
+	salesPriceID, err := s.resolveDefaultSalesPriceID(ctx)
+	if err != nil {
+		rc.Logger.Warn("could not resolve sales price config, skipping price setting", "error", err)
+		return nil
+	}
+	if salesPriceID == 0 {
+		rc.Logger.Warn("no sales price configuration found in PlentyONE, skipping price setting")
 		return nil
 	}
 
-	succeeded, failed := ProcessItems(ctx, items, s.cfg.Concurrency, func(ctx context.Context, item variationItem) error {
-		return s.processVariation(ctx, rc, item)
+	// Build price items for variations with non-zero prices.
+	var priceItems []priceItem
+	for _, item := range allVariations {
+		// Parse price from the variation's sql.NullString.
+		if !item.variation.Price.Valid {
+			continue
+		}
+		price, parseErr := strconv.ParseFloat(item.variation.Price.String, 64)
+		if parseErr != nil || price == 0 {
+			continue
+		}
+
+		// Look up the PlentyONE variation ID from entity_mappings.
+		varMapping, mErr := s.db.GetMappingByLocalIDAndType(ctx, queries.GetMappingByLocalIDAndTypeParams{
+			RunID:      rc.RunID,
+			LocalID:    item.variation.ID,
+			EntityType: string(domain.EntityVariation),
+		})
+		if mErr != nil {
+			rc.Logger.Warn("no PlentyONE mapping for variation, skipping price",
+				slog.Int64("variation_id", item.variation.ID),
+				slog.Any("error", mErr),
+			)
+			continue
+		}
+		if varMapping.Status != string(domain.StatusCreated) {
+			continue
+		}
+
+		// Resolve parent product's PlentyONE item ID.
+		prodMapping, pErr := s.db.GetMappingByLocalIDAndType(ctx, queries.GetMappingByLocalIDAndTypeParams{
+			RunID:      rc.RunID,
+			LocalID:    item.product.ID,
+			EntityType: string(domain.EntityProduct),
+		})
+		if pErr != nil {
+			rc.Logger.Warn("no PlentyONE mapping for product, skipping price",
+				slog.Int64("product_id", item.product.ID),
+				slog.Any("error", pErr),
+			)
+			continue
+		}
+
+		priceItems = append(priceItems, priceItem{
+			variation:    item.variation,
+			plentyItemID: prodMapping.PlentyID,
+			plentyVarID:  varMapping.PlentyID,
+			salesPriceID: salesPriceID,
+			price:        price,
+		})
+	}
+
+	if len(priceItems) == 0 {
+		rc.Logger.Info("no variations with prices to set")
+		return nil
+	}
+
+	priceSucceeded, priceFailed := ProcessItems(ctx, priceItems, s.cfg.Concurrency, func(ctx context.Context, item priceItem) error {
+		_, err := s.client.Variations.SetSalesPrice(ctx, item.plentyItemID, item.plentyVarID, &plenty.VariationSalesPriceRequest{
+			SalesPriceID: item.salesPriceID,
+			Price:        item.price,
+		})
+		if err != nil {
+			rc.Logger.Error("failed to set sales price",
+				slog.Int64("variation_id", item.variation.ID),
+				slog.Float64("price", item.price),
+				slog.Any("error", err),
+			)
+			return err
+		}
+		rc.Logger.Debug("set sales price on variation",
+			slog.Int64("variation_id", item.variation.ID),
+			slog.Int64("plenty_variation_id", item.plentyVarID),
+			slog.Float64("price", item.price),
+		)
+		return nil
 	})
 
-	rc.Logger.Info("variation stage complete",
-		slog.Int("succeeded", succeeded),
-		slog.Int("failed", failed),
+	rc.Logger.Info("variation price setting complete",
+		slog.Int("succeeded", priceSucceeded),
+		slog.Int("failed", priceFailed),
 	)
 
 	return nil
+}
+
+// resolveDefaultSalesPriceID fetches sales price configs from PlentyONE and
+// returns the ID of the default one. Results are cached for subsequent calls.
+func (s *VariationStage) resolveDefaultSalesPriceID(ctx context.Context) (int64, error) {
+	if s.defaultSalesPriceID != 0 {
+		return s.defaultSalesPriceID, nil
+	}
+
+	configs, err := s.client.Variations.ListSalesPriceConfigs(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(configs) == 0 {
+		return 0, nil
+	}
+
+	// Prefer the config with type "default"; fall back to first.
+	for _, c := range configs {
+		if c.Type == "default" {
+			s.defaultSalesPriceID = c.ID
+			return c.ID, nil
+		}
+	}
+
+	s.defaultSalesPriceID = configs[0].ID
+	return configs[0].ID, nil
 }
 
 func (s *VariationStage) processVariation(ctx context.Context, rc *RunContext, item variationItem) error {
@@ -183,4 +319,3 @@ func (s *VariationStage) recordFailure(ctx context.Context, rc *RunContext, loca
 
 // Ensure VariationStage implements Stage at compile time.
 var _ Stage = (*VariationStage)(nil)
-

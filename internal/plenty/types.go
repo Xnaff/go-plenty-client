@@ -188,6 +188,33 @@ type UpdateVariationRequest struct {
 }
 
 // ---------------------------------------------------------------------------
+// Sales Price types
+// ---------------------------------------------------------------------------
+
+// SalesPriceConfig represents a sales price configuration in PlentyONE.
+// Each shop needs at least one sales price config (e.g., "Default price").
+// GET /rest/items/sales_prices
+type SalesPriceConfig struct {
+	ID       int64  `json:"id"`
+	Position int    `json:"position"`
+	Type     string `json:"type"` // "default", "rrp", "specialOffer"
+}
+
+// VariationSalesPriceRequest links a price value to a variation via a sales price config.
+// POST /rest/items/{itemId}/variations/{variationId}/variation_sales_prices
+type VariationSalesPriceRequest struct {
+	SalesPriceID int64   `json:"salesPriceId"`
+	Price        float64 `json:"price"`
+}
+
+// VariationSalesPrice is the response when getting/setting a sales price on a variation.
+type VariationSalesPrice struct {
+	SalesPriceID int64   `json:"salesPriceId"`
+	Price        float64 `json:"price"`
+	VariationID  int64   `json:"variationId"`
+}
+
+// ---------------------------------------------------------------------------
 // Image types
 // ---------------------------------------------------------------------------
 
