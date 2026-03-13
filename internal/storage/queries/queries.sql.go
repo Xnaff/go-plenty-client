@@ -659,6 +659,35 @@ func (q *Queries) ListCategoriesByJob(ctx context.Context, jobID int64) ([]Categ
 	return items, nil
 }
 
+const listCategoryIDsByProduct = `-- name: ListCategoryIDsByProduct :many
+SELECT category_id FROM product_categories
+WHERE product_id = ?
+ORDER BY category_id
+`
+
+func (q *Queries) ListCategoryIDsByProduct(ctx context.Context, productID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoryIDsByProduct, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var category_id int64
+		if err := rows.Scan(&category_id); err != nil {
+			return nil, err
+		}
+		items = append(items, category_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAttributeValuesByAttribute = `-- name: ListAttributeValuesByAttribute :many
 SELECT id, attribute_id, name, sort_order
 FROM attribute_values

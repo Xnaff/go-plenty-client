@@ -44,6 +44,7 @@ type Querier interface {
 	GetTextByProductFieldLang(ctx context.Context, arg GetTextByProductFieldLangParams) (Text, error)
 	ListAttributeValuesByAttribute(ctx context.Context, attributeID int64) ([]AttributeValue, error)
 	ListAttributesByJob(ctx context.Context, jobID int64) ([]Attribute, error)
+	ListCategoryIDsByProduct(ctx context.Context, productID int64) ([]int64, error)
 	ListCategoriesByJob(ctx context.Context, jobID int64) ([]Category, error)
 	ListCreatedMappingsByRunAndType(ctx context.Context, arg ListCreatedMappingsByRunAndTypeParams) ([]EntityMapping, error)
 	ListEntityMappingsByRun(ctx context.Context, arg ListEntityMappingsByRunParams) ([]EntityMapping, error)

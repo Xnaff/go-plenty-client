@@ -250,6 +250,11 @@ UPDATE entity_mappings
 SET status = 'pending', error_message = NULL, updated_at = NOW()
 WHERE run_id = ? AND status = 'failed';
 
+-- name: ListCategoryIDsByProduct :many
+SELECT category_id FROM product_categories
+WHERE product_id = ?
+ORDER BY category_id;
+
 -- name: DeleteOAuthToken :exec
 DELETE FROM oauth_tokens
 WHERE shop_url = ?;
