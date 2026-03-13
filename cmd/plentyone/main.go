@@ -8,11 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/janemig/plentyone/internal/app"
 	"github.com/janemig/plentyone/internal/domain"
 	"github.com/janemig/plentyone/internal/generate/product"
 	"github.com/janemig/plentyone/internal/generate/validate"
+	"github.com/janemig/plentyone/internal/pipeline"
+	"github.com/janemig/plentyone/internal/plenty"
 	"github.com/janemig/plentyone/internal/storage"
 	"github.com/janemig/plentyone/internal/storage/queries"
 	"github.com/joho/godotenv"
@@ -330,11 +333,103 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+var pushCmd = &cobra.Command{
+	Use:   "push",
+	Short: "Push generated products to PlentyONE",
+	RunE:  runPush,
+}
+
+func runPush(cmd *cobra.Command, args []string) error {
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	logger := slog.Default()
+
+	jobID, _ := cmd.Flags().GetInt64("job-id")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	resume, _ := cmd.Flags().GetBool("resume")
+	resetFailed, _ := cmd.Flags().GetBool("reset-failed")
+
+	// Open DB connection.
+	db, err := storage.NewDB(cfg.Database)
+	if err != nil {
+		return fmt.Errorf("connecting to database: %w", err)
+	}
+	defer db.Close()
+	q := queries.New(db)
+
+	// Verify job exists.
+	job, err := q.GetJob(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("getting job %d: %w", jobID, err)
+	}
+	_ = job
+
+	// Create PlentyONE client.
+	plentyClient := plenty.NewClient(plenty.ClientConfig{
+		BaseURL:   cfg.API.BaseURL,
+		Username:  cfg.API.Username,
+		Password:  cfg.API.Password,
+		RateLimit: cfg.API.RateLimit,
+		Timeout:   time.Duration(cfg.API.Timeout) * time.Second,
+		DryRun:    dryRun,
+		Logger:    logger,
+		DB:        q,
+	})
+
+	// Create pipeline.
+	pipeCfg := pipeline.PipelineConfig{Concurrency: cfg.Pipeline.Concurrency}
+	p := pipeline.NewPipeline(plentyClient, q, db, pipeCfg, logger)
+
+	// Register all 6 stages.
+	p.RegisterStage(pipeline.NewCategoryStage(plentyClient, q, pipeCfg))
+	p.RegisterStage(pipeline.NewAttributeStage(plentyClient, q, pipeCfg))
+	p.RegisterStage(pipeline.NewProductStage(plentyClient, q, pipeCfg))
+	p.RegisterStage(pipeline.NewVariationStage(plentyClient, q, pipeCfg))
+	p.RegisterStage(pipeline.NewImageStage(plentyClient, q, pipeCfg))
+	p.RegisterStage(pipeline.NewTextStage(plentyClient, q, pipeCfg))
+
+	// Handle resume mode.
+	if resume {
+		run, err := q.GetPipelineRunByJobLatest(ctx, jobID)
+		if err != nil {
+			return fmt.Errorf("getting latest pipeline run for job %d: %w", jobID, err)
+		}
+		fmt.Printf("Resuming pipeline run %d\n", run.ID)
+		return p.Resume(ctx, run.ID, resetFailed)
+	}
+
+	// Create new pipeline run.
+	runID, err := q.CreatePipelineRun(ctx, queries.CreatePipelineRunParams{
+		JobID:        jobID,
+		Status:       string(domain.PipelinePending),
+		CurrentStage: sql.NullString{},
+	})
+	if err != nil {
+		return fmt.Errorf("creating pipeline run: %w", err)
+	}
+
+	rc := &pipeline.RunContext{
+		RunID:  runID,
+		JobID:  jobID,
+		DryRun: dryRun,
+		Logger: logger,
+	}
+
+	if err := p.Run(ctx, rc); err != nil {
+		return err
+	}
+
+	fmt.Printf("Pipeline completed (run ID: %d)\n", runID)
+	return nil
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(generateCmd)
+	rootCmd.AddCommand(pushCmd)
 
 	migrateCmd.AddCommand(migrateUpCmd)
 	migrateCmd.AddCommand(migrateDownCmd)
@@ -345,4 +440,10 @@ func init() {
 	generateCmd.Flags().Int("count", 10, "number of products to generate")
 	generateCmd.Flags().String("provider", "", "AI provider override (mock, openai)")
 	_ = generateCmd.MarkFlagRequired("niche")
+
+	pushCmd.Flags().Int64("job-id", 0, "job ID to push")
+	pushCmd.Flags().Bool("dry-run", false, "simulate pipeline without making API calls")
+	pushCmd.Flags().Bool("resume", false, "resume the latest pipeline run for this job")
+	pushCmd.Flags().Bool("reset-failed", false, "reset failed entity mappings before resuming")
+	_ = pushCmd.MarkFlagRequired("job-id")
 }
