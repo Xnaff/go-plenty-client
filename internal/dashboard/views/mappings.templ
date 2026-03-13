@@ -1,0 +1,124 @@
+package views
+
+import (
+	"database/sql"
+	"fmt"
+	"github.com/janemig/plentyone/internal/storage/queries"
+)
+
+// EntityTypeOptions lists available entity type filter values.
+var EntityTypeOptions = []string{"category", "attribute", "property", "product", "variation", "image", "text"}
+
+// StatusOptions lists available status filter values.
+var StatusOptions = []string{"pending", "created", "failed", "complete", "orphaned"}
+
+// truncateError returns error text truncated to 50 chars, or "-" if null.
+func truncateError(s sql.NullString) string {
+	if !s.Valid || s.String == "" {
+		return "-"
+	}
+	if len(s.String) > 50 {
+		return s.String[:50] + "..."
+	}
+	return s.String
+}
+
+templ MappingsPage(mappings []queries.EntityMapping, entityTypes []string, statuses []string, selectedType string, selectedStatus string) {
+	@Layout("Mapping Overview") {
+		@PageHeader("Mapping Overview")
+		<div class="flex items-center gap-4 mb-6">
+			<div>
+				<label for="entity-type-filter" class="block text-xs font-medium text-gray-500 mb-1">Entity Type</label>
+				<select
+					id="entity-type-filter"
+					name="entity_type"
+					hx-get="/api/mappings/filter"
+					hx-target="#mappings-table"
+					hx-include="[name='entity_type'],[name='status']"
+					class="block w-48 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+				>
+					if selectedType == "" {
+						<option value="" selected>All Types</option>
+					} else {
+						<option value="">All Types</option>
+					}
+					for _, et := range entityTypes {
+						if et == selectedType {
+							<option value={ et } selected>{ capitalize(et) }</option>
+						} else {
+							<option value={ et }>{ capitalize(et) }</option>
+						}
+					}
+				</select>
+			</div>
+			<div>
+				<label for="status-filter" class="block text-xs font-medium text-gray-500 mb-1">Status</label>
+				<select
+					id="status-filter"
+					name="status"
+					hx-get="/api/mappings/filter"
+					hx-target="#mappings-table"
+					hx-include="[name='entity_type'],[name='status']"
+					class="block w-48 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+				>
+					if selectedStatus == "" {
+						<option value="" selected>All Statuses</option>
+					} else {
+						<option value="">All Statuses</option>
+					}
+					for _, st := range statuses {
+						if st == selectedStatus {
+							<option value={ st } selected>{ capitalize(st) }</option>
+						} else {
+							<option value={ st }>{ capitalize(st) }</option>
+						}
+					}
+				</select>
+			</div>
+		</div>
+		@MappingsTable(mappings)
+	}
+}
+
+templ MappingsTable(mappings []queries.EntityMapping) {
+	<div id="mappings-table">
+		if len(mappings) == 0 {
+			@EmptyState("No mappings found matching filters.")
+		} else {
+			<div class="overflow-x-auto">
+				<table class="min-w-full divide-y divide-gray-200">
+					<thead class="bg-gray-50">
+						<tr>
+							<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+							<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Run ID</th>
+							<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Local ID</th>
+							<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PlentyONE ID</th>
+							<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity Type</th>
+							<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stage</th>
+							<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+							<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Error</th>
+							<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Updated</th>
+						</tr>
+					</thead>
+					<tbody class="bg-white divide-y divide-gray-200">
+						for _, m := range mappings {
+							<tr class="text-sm text-gray-900 even:bg-gray-50">
+								<td class="px-4 py-2">{ fmt.Sprint(m.ID) }</td>
+								<td class="px-4 py-2">{ fmt.Sprint(m.RunID) }</td>
+								<td class="px-4 py-2">{ fmt.Sprint(m.LocalID) }</td>
+								<td class="px-4 py-2">{ fmt.Sprint(m.PlentyID) }</td>
+								<td class="px-4 py-2">{ capitalize(m.EntityType) }</td>
+								<td class="px-4 py-2">{ capitalize(m.Stage) }</td>
+								<td class="px-4 py-2">
+									@StatusBadge(m.Status)
+								</td>
+								<td class="px-4 py-2 text-xs text-gray-600">{ truncateError(m.ErrorMessage) }</td>
+								<td class="px-4 py-2 text-xs text-gray-500">{ m.UpdatedAt.Format("2006-01-02 15:04") }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</div>
+}

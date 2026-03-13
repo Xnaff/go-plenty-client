@@ -1,0 +1,216 @@
+package views
+
+import (
+	"fmt"
+	"github.com/janemig/plentyone/internal/storage/queries"
+)
+
+// truncate returns s truncated to maxLen with "..." appended if necessary.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// textsByLang groups texts by their language code.
+func textsByLang(texts []queries.Text) map[string][]queries.Text {
+	m := make(map[string][]queries.Text)
+	for _, t := range texts {
+		m[t.Lang] = append(m[t.Lang], t)
+	}
+	return m
+}
+
+// langKeys returns sorted language keys from a text-by-lang map.
+func langKeys(m map[string][]queries.Text) []string {
+	seen := make(map[string]bool)
+	var keys []string
+	for k := range m {
+		if !seen[k] {
+			keys = append(keys, k)
+			seen[k] = true
+		}
+	}
+	return keys
+}
+
+// nullPrice returns the price string or "-" if null.
+func nullPrice(p interface{ Valid() bool; String() string }) string {
+	return "-"
+}
+
+templ DataPreviewPage(jobs []queries.Job, selectedJob *queries.Job, products []queries.Product) {
+	@Layout("Data Preview") {
+		@PageHeader("Data Preview")
+		<div class="mb-6">
+			<label for="job-selector" class="block text-sm font-medium text-gray-700 mb-2">Select Job</label>
+			<select
+				id="job-selector"
+				name="job_id"
+				hx-get="/preview"
+				hx-target="#preview-content"
+				hx-include="this"
+				class="block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+			>
+				<option value="">-- Select a job --</option>
+				for _, job := range jobs {
+					if selectedJob != nil && selectedJob.ID == job.ID {
+						<option value={ fmt.Sprint(job.ID) } selected>
+							{ job.Name } (#{ fmt.Sprint(job.ID) })
+						</option>
+					} else {
+						<option value={ fmt.Sprint(job.ID) }>
+							{ job.Name } (#{ fmt.Sprint(job.ID) })
+						</option>
+					}
+				}
+			</select>
+		</div>
+		<div id="preview-content">
+			if selectedJob == nil {
+				@EmptyState("Select a job to preview generated products.")
+			} else if len(products) == 0 {
+				@EmptyState("No products found for this job.")
+			} else {
+				@PreviewProductsFragment(products)
+			}
+		</div>
+		<div id="product-detail" class="mt-6">
+			@EmptyState("Click a product to see details.")
+		</div>
+	}
+}
+
+templ PreviewProductsFragment(products []queries.Product) {
+	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+		for _, product := range products {
+			<div
+				class="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition-shadow"
+				hx-get={ fmt.Sprintf("/api/preview/%d", product.ID) }
+				hx-target="#product-detail"
+			>
+				<h3 class="text-sm font-semibold text-gray-900 mb-2">{ product.Name }</h3>
+				<div class="flex items-center gap-2 mb-2">
+					<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+						{ product.ProductType }
+					</span>
+					@StatusBadge(product.Status)
+				</div>
+				<p class="text-xs text-gray-500">{ product.CreatedAt.Format("2006-01-02 15:04") }</p>
+			</div>
+		}
+	</div>
+}
+
+templ ProductDetailFragment(product queries.Product, variations []queries.Variation, images []queries.Image, texts []queries.Text) {
+	<div class="bg-white rounded-lg shadow p-6">
+		<div class="flex items-center justify-between mb-4">
+			<div>
+				<h2 class="text-lg font-semibold text-gray-900">{ product.Name }</h2>
+				<p class="text-sm text-gray-500">
+					Product #{ fmt.Sprint(product.ID) } &middot;
+					<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+						{ product.ProductType }
+					</span>
+					&middot;
+					@StatusBadge(product.Status)
+				</p>
+			</div>
+		</div>
+
+		<!-- Variations Section -->
+		<div class="mb-6">
+			<h3 class="text-md font-semibold text-gray-800 mb-2">Variations</h3>
+			if len(variations) == 0 {
+				<p class="text-sm text-gray-500">No variations</p>
+			} else {
+				<div class="overflow-x-auto">
+					<table class="min-w-full divide-y divide-gray-200">
+						<thead class="bg-gray-50">
+							<tr>
+								<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+								<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
+								<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+								<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Currency</th>
+								<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Weight</th>
+								<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+							</tr>
+						</thead>
+						<tbody class="bg-white divide-y divide-gray-200">
+							for _, v := range variations {
+								<tr class="even:bg-gray-50">
+									<td class="px-4 py-2 text-sm text-gray-900">{ v.Name }</td>
+									<td class="px-4 py-2 text-sm text-gray-900">{ v.Sku }</td>
+									<td class="px-4 py-2 text-sm text-gray-900">
+										if v.Price.Valid {
+											{ v.Price.String }
+										} else {
+											-
+										}
+									</td>
+									<td class="px-4 py-2 text-sm text-gray-900">{ v.Currency }</td>
+									<td class="px-4 py-2 text-sm text-gray-900">
+										if v.Weight.Valid {
+											{ v.Weight.String } { v.WeightUnit }
+										} else {
+											-
+										}
+									</td>
+									<td class="px-4 py-2 text-sm">
+										@StatusBadge(v.Status)
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</div>
+
+		<!-- Images Section -->
+		<div class="mb-6">
+			<h3 class="text-md font-semibold text-gray-800 mb-2">Images</h3>
+			if len(images) == 0 {
+				<p class="text-sm text-gray-500">No images</p>
+			} else {
+				<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+					for _, img := range images {
+						<div class="bg-gray-50 rounded-lg p-3">
+							if img.SourceUrl != "" {
+								<img src={ img.SourceUrl } alt={ fmt.Sprintf("Image %d", img.Position) } class="max-h-32 w-full object-contain rounded mb-2"/>
+							}
+							<p class="text-xs text-gray-600">Position: { fmt.Sprint(img.Position) }</p>
+							<p class="text-xs text-gray-600">Source: { img.SourceType }</p>
+							<div class="mt-1">
+								@StatusBadge(img.Status)
+							</div>
+						</div>
+					}
+				</div>
+			}
+		</div>
+
+		<!-- Texts Section -->
+		<div>
+			<h3 class="text-md font-semibold text-gray-800 mb-2">Texts</h3>
+			if len(texts) == 0 {
+				<p class="text-sm text-gray-500">No texts</p>
+			} else {
+				for _, lang := range langKeys(textsByLang(texts)) {
+					<div class="mb-4">
+						<h4 class="text-sm font-semibold text-gray-700 mb-1 uppercase">{ lang }</h4>
+						<div class="space-y-2">
+							for _, t := range textsByLang(texts)[lang] {
+								<div class="bg-gray-50 rounded p-2">
+									<span class="text-xs font-medium text-gray-500">{ t.Field }</span>
+									<p class="text-sm text-gray-900 mt-1">{ truncate(t.Content, 200) }</p>
+								</div>
+							}
+						</div>
+					</div>
+				}
+			}
+		</div>
+	</div>
+}

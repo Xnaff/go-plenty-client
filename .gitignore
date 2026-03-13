@@ -1,0 +1,22 @@
+.planning/
+
+# Binary output
+bin/
+
+# Environment files
+.env
+
+# Executables
+*.exe
+
+# Air hot reload
+tmp/
+
+# Build tools (tailwindcss binary ~50MB)
+tools/
+
+# Generated CSS (rebuilt by tailwindcss)
+internal/dashboard/static/css/output.css
+
+# OS files
+.DS_Store

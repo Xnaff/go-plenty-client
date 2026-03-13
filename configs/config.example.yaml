@@ -1,0 +1,39 @@
+# PlentyONE Product Generator Configuration
+# Copy this file to config.yaml and adjust values as needed.
+
+# HTTP server settings
+server:
+  host: "0.0.0.0"     # Listen address
+  port: 8080           # Listen port
+
+# MySQL database connection
+database:
+  host: "localhost"    # Database host
+  port: 3306           # Database port
+  user: "plentyone"    # Database user
+  password: ""         # Database password (use env var PLENTYONE_DATABASE_PASSWORD)
+  name: "plentyone"    # Database name
+  max_conns: 25        # Maximum open connections
+
+# Logging configuration
+log:
+  level: "info"        # Log level: debug, info, warn, error
+  format: "json"       # Output format: json, text
+
+# Pipeline execution settings
+pipeline:
+  concurrency: 5           # Max concurrent API requests per stage
+  batch_size: 50           # Items per batch
+  rate_limit_per_sec: 2.0  # PlentyONE API rate limit (requests/second)
+
+# AI generation settings
+ai:
+  provider: "mock"           # AI provider: mock, openai
+  api_key: ""                # API key (use env var PLENTYONE_AI_API_KEY)
+  model: "gpt-4o-mini"      # Model name (provider-specific)
+  languages:                 # Languages to generate text in
+    - "en"
+    - "de"
+    - "es"
+    - "fr"
+    - "it"

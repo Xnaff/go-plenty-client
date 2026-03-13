@@ -1,0 +1,17 @@
+version: "2"
+
+run:
+  go: "1.23"
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+
+issues:
+  exclude-dirs:
+    - internal/storage/queries
