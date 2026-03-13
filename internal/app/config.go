@@ -14,6 +14,16 @@ type Config struct {
 	Log      LogConfig      `mapstructure:"log"`
 	Pipeline PipelineConfig `mapstructure:"pipeline"`
 	AI       AIConfig       `mapstructure:"ai"`
+	API      APIConfig      `mapstructure:"api"`
+}
+
+// APIConfig holds PlentyONE REST API connection settings.
+type APIConfig struct {
+	BaseURL   string `mapstructure:"base_url"`
+	Username  string `mapstructure:"username"`
+	Password  string `mapstructure:"password"`
+	RateLimit int    `mapstructure:"rate_limit"`
+	Timeout   int    `mapstructure:"timeout"` // seconds
 }
 
 // AIConfig holds AI generation provider settings.
@@ -88,6 +98,11 @@ func LoadConfig(cfgFile string) (*Config, error) {
 	viper.SetDefault("ai.provider", "mock")
 	viper.SetDefault("ai.model", "gpt-4o-mini")
 	viper.SetDefault("ai.languages", []string{"en", "de", "es", "fr", "it"})
+	viper.SetDefault("api.base_url", "")
+	viper.SetDefault("api.username", "")
+	viper.SetDefault("api.password", "")
+	viper.SetDefault("api.rate_limit", 40)
+	viper.SetDefault("api.timeout", 60)
 
 	// Environment variables: PLENTYONE_DATABASE_HOST, etc.
 	viper.SetEnvPrefix("PLENTYONE")

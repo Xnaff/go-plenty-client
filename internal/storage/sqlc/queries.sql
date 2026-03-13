@@ -255,6 +255,12 @@ SELECT category_id FROM product_categories
 WHERE product_id = ?
 ORDER BY category_id;
 
+-- name: ListRecentJobs :many
+SELECT id, name, job_type, config, status, created_at, updated_at
+FROM jobs
+ORDER BY created_at DESC
+LIMIT ?;
+
 -- name: DeleteOAuthToken :exec
 DELETE FROM oauth_tokens
 WHERE shop_url = ?;

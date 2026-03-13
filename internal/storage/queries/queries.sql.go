@@ -61,67 +61,6 @@ func (q *Queries) CountMappingsByStatus(ctx context.Context, runID int64) ([]Cou
 	return items, nil
 }
 
-const deleteOAuthToken = `-- name: DeleteOAuthToken :exec
-DELETE FROM oauth_tokens
-WHERE shop_url = ?
-`
-
-func (q *Queries) DeleteOAuthToken(ctx context.Context, shopUrl string) error {
-	_, err := q.db.ExecContext(ctx, deleteOAuthToken, shopUrl)
-	return err
-}
-
-const getOAuthToken = `-- name: GetOAuthToken :one
-SELECT id, shop_url, access_token, refresh_token, token_type, expires_at, created_at, updated_at
-FROM oauth_tokens
-WHERE shop_url = ?
-`
-
-func (q *Queries) GetOAuthToken(ctx context.Context, shopUrl string) (OauthToken, error) {
-	row := q.db.QueryRowContext(ctx, getOAuthToken, shopUrl)
-	var i OauthToken
-	err := row.Scan(
-		&i.ID,
-		&i.ShopUrl,
-		&i.AccessToken,
-		&i.RefreshToken,
-		&i.TokenType,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const upsertOAuthToken = `-- name: UpsertOAuthToken :exec
-INSERT INTO oauth_tokens (shop_url, access_token, refresh_token, token_type, expires_at)
-VALUES (?, ?, ?, ?, ?)
-ON DUPLICATE KEY UPDATE
-    access_token = VALUES(access_token),
-    refresh_token = VALUES(refresh_token),
-    token_type = VALUES(token_type),
-    expires_at = VALUES(expires_at)
-`
-
-type UpsertOAuthTokenParams struct {
-	ShopUrl      string    `json:"shop_url"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	TokenType    string    `json:"token_type"`
-	ExpiresAt    time.Time `json:"expires_at"`
-}
-
-func (q *Queries) UpsertOAuthToken(ctx context.Context, arg UpsertOAuthTokenParams) error {
-	_, err := q.db.ExecContext(ctx, upsertOAuthToken,
-		arg.ShopUrl,
-		arg.AccessToken,
-		arg.RefreshToken,
-		arg.TokenType,
-		arg.ExpiresAt,
-	)
-	return err
-}
-
 const createCategory = `-- name: CreateCategory :execlastid
 
 INSERT INTO categories (job_id, parent_id, name, level, sort_order, status)
@@ -383,6 +322,16 @@ func (q *Queries) CreateVariation(ctx context.Context, arg CreateVariationParams
 	return result.LastInsertId()
 }
 
+const deleteOAuthToken = `-- name: DeleteOAuthToken :exec
+DELETE FROM oauth_tokens
+WHERE shop_url = ?
+`
+
+func (q *Queries) DeleteOAuthToken(ctx context.Context, shopUrl string) error {
+	_, err := q.db.ExecContext(ctx, deleteOAuthToken, shopUrl)
+	return err
+}
+
 const getEntityMapping = `-- name: GetEntityMapping :one
 SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
 FROM entity_mappings
@@ -443,6 +392,27 @@ func (q *Queries) GetEntityMappingByPlentyID(ctx context.Context, arg GetEntityM
 	return i, err
 }
 
+const getJob = `-- name: GetJob :one
+SELECT id, name, job_type, config, status, created_at, updated_at
+FROM jobs
+WHERE id = ?
+`
+
+func (q *Queries) GetJob(ctx context.Context, id int64) (Job, error) {
+	row := q.db.QueryRowContext(ctx, getJob, id)
+	var i Job
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.JobType,
+		&i.Config,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getMappingByLocalIDAndType = `-- name: GetMappingByLocalIDAndType :one
 SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
 FROM entity_mappings
@@ -473,21 +443,22 @@ func (q *Queries) GetMappingByLocalIDAndType(ctx context.Context, arg GetMapping
 	return i, err
 }
 
-const getJob = `-- name: GetJob :one
-SELECT id, name, job_type, config, status, created_at, updated_at
-FROM jobs
-WHERE id = ?
+const getOAuthToken = `-- name: GetOAuthToken :one
+SELECT id, shop_url, access_token, refresh_token, token_type, expires_at, created_at, updated_at
+FROM oauth_tokens
+WHERE shop_url = ?
 `
 
-func (q *Queries) GetJob(ctx context.Context, id int64) (Job, error) {
-	row := q.db.QueryRowContext(ctx, getJob, id)
-	var i Job
+func (q *Queries) GetOAuthToken(ctx context.Context, shopUrl string) (OauthToken, error) {
+	row := q.db.QueryRowContext(ctx, getOAuthToken, shopUrl)
+	var i OauthToken
 	err := row.Scan(
 		&i.ID,
-		&i.Name,
-		&i.JobType,
-		&i.Config,
-		&i.Status,
+		&i.ShopUrl,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.TokenType,
+		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -620,74 +591,6 @@ func (q *Queries) GetTextByProductFieldLang(ctx context.Context, arg GetTextByPr
 	return i, err
 }
 
-const listCategoriesByJob = `-- name: ListCategoriesByJob :many
-SELECT id, job_id, parent_id, name, level, sort_order, status, created_at
-FROM categories
-WHERE job_id = ?
-ORDER BY level, sort_order
-`
-
-func (q *Queries) ListCategoriesByJob(ctx context.Context, jobID int64) ([]Category, error) {
-	rows, err := q.db.QueryContext(ctx, listCategoriesByJob, jobID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Category{}
-	for rows.Next() {
-		var i Category
-		if err := rows.Scan(
-			&i.ID,
-			&i.JobID,
-			&i.ParentID,
-			&i.Name,
-			&i.Level,
-			&i.SortOrder,
-			&i.Status,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listCategoryIDsByProduct = `-- name: ListCategoryIDsByProduct :many
-SELECT category_id FROM product_categories
-WHERE product_id = ?
-ORDER BY category_id
-`
-
-func (q *Queries) ListCategoryIDsByProduct(ctx context.Context, productID int64) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, listCategoryIDsByProduct, productID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []int64{}
-	for rows.Next() {
-		var category_id int64
-		if err := rows.Scan(&category_id); err != nil {
-			return nil, err
-		}
-		items = append(items, category_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listAttributeValuesByAttribute = `-- name: ListAttributeValuesByAttribute :many
 SELECT id, attribute_id, name, sort_order
 FROM attribute_values
@@ -750,6 +653,74 @@ func (q *Queries) ListAttributesByJob(ctx context.Context, jobID int64) ([]Attri
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoriesByJob = `-- name: ListCategoriesByJob :many
+SELECT id, job_id, parent_id, name, level, sort_order, status, created_at
+FROM categories
+WHERE job_id = ?
+ORDER BY level, sort_order
+`
+
+func (q *Queries) ListCategoriesByJob(ctx context.Context, jobID int64) ([]Category, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoriesByJob, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Category{}
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.ParentID,
+			&i.Name,
+			&i.Level,
+			&i.SortOrder,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoryIDsByProduct = `-- name: ListCategoryIDsByProduct :many
+SELECT category_id FROM product_categories
+WHERE product_id = ?
+ORDER BY category_id
+`
+
+func (q *Queries) ListCategoryIDsByProduct(ctx context.Context, productID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoryIDsByProduct, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var category_id int64
+		if err := rows.Scan(&category_id); err != nil {
+			return nil, err
+		}
+		items = append(items, category_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -893,6 +864,46 @@ func (q *Queries) ListFailedMappingsByRun(ctx context.Context, runID int64) ([]E
 	return items, nil
 }
 
+const listImagesByProduct = `-- name: ListImagesByProduct :many
+SELECT id, product_id, source_url, local_path, position, source_type, attribution, status, created_at
+FROM images
+WHERE product_id = ?
+ORDER BY position
+`
+
+func (q *Queries) ListImagesByProduct(ctx context.Context, productID int64) ([]Image, error) {
+	rows, err := q.db.QueryContext(ctx, listImagesByProduct, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Image{}
+	for rows.Next() {
+		var i Image
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProductID,
+			&i.SourceUrl,
+			&i.LocalPath,
+			&i.Position,
+			&i.SourceType,
+			&i.Attribution,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrphanedMappingsByRun = `-- name: ListOrphanedMappingsByRun :many
 SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
 FROM entity_mappings
@@ -920,46 +931,6 @@ func (q *Queries) ListOrphanedMappingsByRun(ctx context.Context, runID int64) ([
 			&i.ErrorMessage,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listImagesByProduct = `-- name: ListImagesByProduct :many
-SELECT id, product_id, source_url, local_path, position, source_type, attribution, status, created_at
-FROM images
-WHERE product_id = ?
-ORDER BY position
-`
-
-func (q *Queries) ListImagesByProduct(ctx context.Context, productID int64) ([]Image, error) {
-	rows, err := q.db.QueryContext(ctx, listImagesByProduct, productID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Image{}
-	for rows.Next() {
-		var i Image
-		if err := rows.Scan(
-			&i.ID,
-			&i.ProductID,
-			&i.SourceUrl,
-			&i.LocalPath,
-			&i.Position,
-			&i.SourceType,
-			&i.Attribution,
-			&i.Status,
-			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1120,6 +1091,44 @@ func (q *Queries) ListPropertiesByJob(ctx context.Context, jobID int64) ([]Prope
 			&i.PropertyType,
 			&i.Status,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentJobs = `-- name: ListRecentJobs :many
+SELECT id, name, job_type, config, status, created_at, updated_at
+FROM jobs
+ORDER BY created_at DESC
+LIMIT ?
+`
+
+func (q *Queries) ListRecentJobs(ctx context.Context, limit int32) ([]Job, error) {
+	rows, err := q.db.QueryContext(ctx, listRecentJobs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Job{}
+	for rows.Next() {
+		var i Job
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.JobType,
+			&i.Config,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1303,6 +1312,23 @@ func (q *Queries) UpdateMappingStatus(ctx context.Context, arg UpdateMappingStat
 	return err
 }
 
+const updatePipelineRunCompleted = `-- name: UpdatePipelineRunCompleted :exec
+UPDATE pipeline_runs
+SET status = ?, current_stage = ?, completed_at = NOW(), updated_at = NOW()
+WHERE id = ?
+`
+
+type UpdatePipelineRunCompletedParams struct {
+	Status       string         `json:"status"`
+	CurrentStage sql.NullString `json:"current_stage"`
+	ID           int64          `json:"id"`
+}
+
+func (q *Queries) UpdatePipelineRunCompleted(ctx context.Context, arg UpdatePipelineRunCompletedParams) error {
+	_, err := q.db.ExecContext(ctx, updatePipelineRunCompleted, arg.Status, arg.CurrentStage, arg.ID)
+	return err
+}
+
 const updatePipelineRunStatus = `-- name: UpdatePipelineRunStatus :exec
 UPDATE pipeline_runs
 SET status = ?, current_stage = ?, error_message = ?, updated_at = NOW()
@@ -1321,27 +1347,6 @@ func (q *Queries) UpdatePipelineRunStatus(ctx context.Context, arg UpdatePipelin
 		arg.Status,
 		arg.CurrentStage,
 		arg.ErrorMessage,
-		arg.ID,
-	)
-	return err
-}
-
-const updatePipelineRunCompleted = `-- name: UpdatePipelineRunCompleted :exec
-UPDATE pipeline_runs
-SET status = ?, current_stage = ?, completed_at = NOW(), updated_at = NOW()
-WHERE id = ?
-`
-
-type UpdatePipelineRunCompletedParams struct {
-	Status       string         `json:"status"`
-	CurrentStage sql.NullString `json:"current_stage"`
-	ID           int64          `json:"id"`
-}
-
-func (q *Queries) UpdatePipelineRunCompleted(ctx context.Context, arg UpdatePipelineRunCompletedParams) error {
-	_, err := q.db.ExecContext(ctx, updatePipelineRunCompleted,
-		arg.Status,
-		arg.CurrentStage,
 		arg.ID,
 	)
 	return err
@@ -1393,6 +1398,37 @@ func (q *Queries) UpdateStageStateTimestamps(ctx context.Context, arg UpdateStag
 		arg.StartedAt,
 		arg.CompletedAt,
 		arg.ID,
+	)
+	return err
+}
+
+const upsertOAuthToken = `-- name: UpsertOAuthToken :exec
+
+INSERT INTO oauth_tokens (shop_url, access_token, refresh_token, token_type, expires_at)
+VALUES (?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+    access_token = VALUES(access_token),
+    refresh_token = VALUES(refresh_token),
+    token_type = VALUES(token_type),
+    expires_at = VALUES(expires_at)
+`
+
+type UpsertOAuthTokenParams struct {
+	ShopUrl      string    `json:"shop_url"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	TokenType    string    `json:"token_type"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
+// OAuth Tokens
+func (q *Queries) UpsertOAuthToken(ctx context.Context, arg UpsertOAuthTokenParams) error {
+	_, err := q.db.ExecContext(ctx, upsertOAuthToken,
+		arg.ShopUrl,
+		arg.AccessToken,
+		arg.RefreshToken,
+		arg.TokenType,
+		arg.ExpiresAt,
 	)
 	return err
 }
