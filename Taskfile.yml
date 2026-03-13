@@ -15,8 +15,19 @@ tasks:
     cmds:
       - sqlc generate
 
+  templ:
+    desc: "Generate templ Go code from .templ files"
+    cmds:
+      - templ generate ./internal/dashboard/views/
+
+  css:
+    desc: "Build Tailwind CSS"
+    cmds:
+      - ./tools/tailwindcss -i internal/dashboard/static/css/input.css -o internal/dashboard/static/css/output.css --minify
+
   build:
     desc: "Build the binary"
+    deps: [templ, css]
     cmds:
       - go build -o {{.BUILD_DIR}}/{{.BINARY}} ./cmd/plentyone
 
@@ -52,6 +63,7 @@ tasks:
       - rm -rf tmp
 
   dev:
-    desc: "Run with hot reload (air)"
+    desc: "Development mode with templ watch and air"
     cmds:
+      - templ generate --watch ./internal/dashboard/views/ &
       - air
