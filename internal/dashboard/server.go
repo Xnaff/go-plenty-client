@@ -40,6 +40,7 @@ func NewRouter(h *Handlers, broker *Broker) chi.Router {
 
 		// API routes for HTMX partial updates.
 		r.Get("/api/pipeline/{runID}/stages", h.HandleStagesFragment)
+		r.Get("/api/preview/{productID}", h.HandleProductDetail)
 	})
 
 	return r
