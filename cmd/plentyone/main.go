@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/janemig/plentyone/internal/app"
+	"github.com/janemig/plentyone/internal/dashboard"
 	"github.com/janemig/plentyone/internal/domain"
 	"github.com/janemig/plentyone/internal/generate/product"
 	"github.com/janemig/plentyone/internal/generate/validate"
@@ -659,6 +662,45 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start the web dashboard",
+	RunE:  runServe,
+}
+
+func runServe(cmd *cobra.Command, args []string) error {
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Open DB connection.
+	db, err := storage.NewDB(cfg.Database)
+	if err != nil {
+		return fmt.Errorf("connecting to database: %w", err)
+	}
+	defer db.Close()
+	q := queries.New(db)
+
+	// Create handlers and router.
+	handlers := dashboard.NewHandlers(q, db, cfg)
+	router := dashboard.NewRouter(handlers)
+
+	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	slog.Info("starting dashboard", slog.String("addr", addr))
+
+	srv := &http.Server{Addr: addr, Handler: router}
+
+	// Graceful shutdown goroutine.
+	go func() {
+		<-ctx.Done()
+		srv.Shutdown(context.Background())
+	}()
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
 	rootCmd.AddCommand(versionCmd)
@@ -667,6 +709,7 @@ func init() {
 	rootCmd.AddCommand(pushCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(serveCmd)
 
 	migrateCmd.AddCommand(migrateUpCmd)
 	migrateCmd.AddCommand(migrateDownCmd)

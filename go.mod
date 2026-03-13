@@ -3,7 +3,9 @@ module github.com/janemig/plentyone
 go 1.25.0
 
 require (
+	github.com/a-h/templ v0.3.1001
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/invopop/jsonschema v0.13.0
@@ -20,7 +22,6 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/a-h/templ v0.3.1001 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
