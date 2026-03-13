@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -17,8 +19,12 @@ import (
 	"github.com/janemig/plentyone/internal/app"
 	"github.com/janemig/plentyone/internal/dashboard"
 	"github.com/janemig/plentyone/internal/domain"
+	"github.com/janemig/plentyone/internal/enrichment"
+	"github.com/janemig/plentyone/internal/generate"
+	"github.com/janemig/plentyone/internal/generate/quality"
 	"github.com/janemig/plentyone/internal/generate/product"
 	"github.com/janemig/plentyone/internal/generate/validate"
+	"github.com/janemig/plentyone/internal/imagesource"
 	"github.com/janemig/plentyone/internal/pipeline"
 	"github.com/janemig/plentyone/internal/plenty"
 	"github.com/janemig/plentyone/internal/storage"
@@ -162,6 +168,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	// Override provider if flag is set.
 	if provider != "" {
 		cfg.AI.Provider = provider
+		cfg.Images.Provider = provider
 	}
 
 	// Create AI generator.
@@ -172,6 +179,21 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	// Create product generator.
 	prodGen := product.NewGenerator(gen, validate.NewValidator(), cfg.AI.Languages, logger)
+
+	// Create image generator.
+	imageGen, err := app.NewImageGeneratorFromConfig(cfg, logger)
+	if err != nil {
+		return fmt.Errorf("creating image generator: %w", err)
+	}
+
+	// Create stock photo sources.
+	imageSources := app.NewImageSourcesFromConfig(cfg)
+
+	// Create enrichers.
+	enrichers := app.NewEnrichersFromConfig(cfg)
+
+	// Create quality scorer.
+	scorer := app.NewQualityScorerFromConfig(cfg)
 
 	// Create job config JSON.
 	configJSON, err := json.Marshal(map[string]any{
@@ -325,7 +347,168 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("creating variation: %w", err)
 		}
 
-		slog.Info("generated product", "index", i+1, "total", count, "job_id", jobID)
+		// Step A: Generate AI images.
+		imagePosition := 0
+		for imgIdx := 0; imgIdx < cfg.Images.PerProduct; imgIdx++ {
+			imgReq := generate.ImageRequest{
+				ProductName: productName,
+				ProductType: niche,
+				Category:    niche,
+				Style:       "product photography, white background, studio lighting",
+				Size:        cfg.Images.Size,
+				Quality:     cfg.Images.Quality,
+			}
+			imgResult, err := imageGen.GenerateProductImage(ctx, imgReq)
+			if err != nil {
+				logger.Warn("AI image generation failed, continuing", "error", err, "product", productName)
+				break
+			}
+			// Save base64 image to local file.
+			imgDir := filepath.Join("data", "images", fmt.Sprintf("job-%d", jobID))
+			if mkErr := os.MkdirAll(imgDir, 0o755); mkErr != nil {
+				return fmt.Errorf("creating image directory: %w", mkErr)
+			}
+			imgPath := filepath.Join(imgDir, fmt.Sprintf("product-%d-ai-%d.%s", productID, imgIdx, imgResult.Format))
+			imgBytes, decErr := base64.StdEncoding.DecodeString(imgResult.Base64Data)
+			if decErr != nil {
+				logger.Warn("failed to decode AI image base64", "error", decErr)
+				break
+			}
+			if wErr := os.WriteFile(imgPath, imgBytes, 0o644); wErr != nil {
+				return fmt.Errorf("writing image file: %w", wErr)
+			}
+
+			if _, err := q.CreateImage(ctx, queries.CreateImageParams{
+				ProductID:   productID,
+				SourceUrl:   "",
+				LocalPath:   imgPath,
+				Position:    int32(imagePosition),
+				SourceType:  "ai-generated",
+				Attribution: sql.NullString{},
+				Status:      string(domain.StatusPending),
+			}); err != nil {
+				return fmt.Errorf("creating AI image record: %w", err)
+			}
+			imagePosition++
+		}
+		hasAIImage := imagePosition > 0
+
+		// Step B: Source stock photos.
+		hasStockPhoto := false
+		if len(imageSources) > 0 {
+			searchQuery := productName + " " + niche
+			for _, source := range imageSources {
+				if imagePosition >= cfg.Images.PerProduct+cfg.StockPhotos.PerProduct {
+					break
+				}
+				photos, sErr := source.Search(ctx, searchQuery, imagesource.SearchOptions{
+					Page:        1,
+					PerPage:     cfg.StockPhotos.PerProduct,
+					Orientation: cfg.StockPhotos.Orientation,
+					MinWidth:    cfg.StockPhotos.MinWidth,
+					MinHeight:   cfg.StockPhotos.MinHeight,
+				})
+				if sErr != nil {
+					logger.Warn("stock photo search failed", "source", source.Name(), "error", sErr)
+					continue
+				}
+				for _, photo := range photos {
+					if imagePosition >= cfg.Images.PerProduct+cfg.StockPhotos.PerProduct {
+						break
+					}
+					if _, err := q.CreateImage(ctx, queries.CreateImageParams{
+						ProductID:   productID,
+						SourceUrl:   photo.DownloadURL,
+						LocalPath:   "",
+						Position:    int32(imagePosition),
+						SourceType:  photo.SourceName,
+						Attribution: sql.NullString{String: photo.Attribution, Valid: photo.Attribution != ""},
+						Status:      string(domain.StatusPending),
+					}); err != nil {
+						return fmt.Errorf("creating stock photo record: %w", err)
+					}
+					imagePosition++
+					hasStockPhoto = true
+				}
+				if hasStockPhoto {
+					break // Got photos from first available source.
+				}
+			}
+		}
+
+		// Step C: Enrich from public databases.
+		enrichmentFields := make(map[string]string)
+		for _, enricher := range enrichers {
+			enrichReq := enrichment.EnrichmentRequest{
+				ProductName: productName,
+				ProductType: niche,
+				Category:    niche,
+			}
+			enrichResult, eErr := enricher.Enrich(ctx, enrichReq)
+			if eErr != nil {
+				logger.Warn("enrichment failed", "source", enricher.Name(), "error", eErr)
+				continue
+			}
+			for k, v := range enrichResult.Fields {
+				enrichmentFields[enricher.Name()+"_"+k] = v
+			}
+		}
+
+		// Step D: Score quality.
+		if scorer != nil {
+			input := &quality.ScoringInput{
+				ProductName:      productName,
+				ProductType:      niche,
+				Texts:            result.Texts,
+				ImageCount:       imagePosition,
+				HasAIImage:       hasAIImage,
+				HasStockPhoto:    hasStockPhoto,
+				EnrichmentFields: enrichmentFields,
+				Languages:        cfg.AI.Languages,
+			}
+			report := scorer.Score(input)
+
+			// Persist quality score.
+			detailsJSON, _ := json.Marshal(report.RuleResults)
+			if _, qErr := q.CreateQualityScore(ctx, queries.CreateQualityScoreParams{
+				ProductID:  productID,
+				JobID:      jobID,
+				Overall:    fmt.Sprintf("%.4f", report.OverallScore),
+				TextScore:  fmt.Sprintf("%.4f", report.TextScore),
+				ImageScore: fmt.Sprintf("%.4f", report.ImageScore),
+				DataScore:  fmt.Sprintf("%.4f", report.DataScore),
+				Pass:       report.Pass,
+				Details:    json.RawMessage(detailsJSON),
+			}); qErr != nil {
+				return fmt.Errorf("creating quality score: %w", qErr)
+			}
+
+			if !report.Pass {
+				switch cfg.Quality.FlagAction {
+				case "warn":
+					logger.Warn("product below quality threshold",
+						"product", productName,
+						"score", report.OverallScore,
+						"flags", report.Flags,
+					)
+				case "skip":
+					logger.Warn("skipping low-quality product",
+						"product", productName,
+						"score", report.OverallScore,
+					)
+					continue
+				case "fail":
+					return fmt.Errorf("product %q failed quality check: score %.2f, flags: %v",
+						productName, report.OverallScore, report.Flags)
+				}
+			}
+		}
+
+		slog.Info("generated product",
+			"index", i+1, "total", count, "job_id", jobID,
+			"images", imagePosition,
+			"enrichment_fields", len(enrichmentFields),
+		)
 	}
 
 	// Mark job as completed.
