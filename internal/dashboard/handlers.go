@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"net/http"
@@ -190,7 +191,95 @@ func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
 	views.ConfigPage().Render(r.Context(), w)
 }
 
-// HandleMappings renders the mapping overview page.
+// HandleMappings renders the mapping overview page with filtering.
 func (h *Handlers) HandleMappings(w http.ResponseWriter, r *http.Request) {
-	views.MappingsPage().Render(r.Context(), w)
+	ctx := r.Context()
+
+	selectedType := r.URL.Query().Get("entity_type")
+	selectedStatus := r.URL.Query().Get("status")
+
+	mappings, err := h.queryMappings(ctx, selectedType, selectedStatus)
+	if err != nil {
+		slog.Error("querying mappings", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	views.MappingsPage(mappings, views.EntityTypeOptions, views.StatusOptions, selectedType, selectedStatus).Render(ctx, w)
+}
+
+// HandleMappingsFilter renders just the mapping table for HTMX partial updates.
+func (h *Handlers) HandleMappingsFilter(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	selectedType := r.URL.Query().Get("entity_type")
+	selectedStatus := r.URL.Query().Get("status")
+
+	mappings, err := h.queryMappings(ctx, selectedType, selectedStatus)
+	if err != nil {
+		slog.Error("querying mappings", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	views.MappingsTable(mappings).Render(ctx, w)
+}
+
+// queryMappings loads entity mappings for the latest pipeline run, with optional
+// entity_type and status filters. Uses rawDB because the sqlc-generated query
+// ListEntityMappingsByRun requires entity_type and doesn't support "all types".
+func (h *Handlers) queryMappings(ctx context.Context, entityType, status string) ([]queries.EntityMapping, error) {
+	// Find the latest pipeline run.
+	jobs, err := h.db.ListRecentJobs(ctx, 50)
+	if err != nil {
+		return nil, err
+	}
+
+	var runID int64
+	for _, job := range jobs {
+		run, err := h.db.GetPipelineRunByJobLatest(ctx, job.ID)
+		if err == nil {
+			runID = run.ID
+			break
+		}
+	}
+
+	if runID == 0 {
+		return nil, nil // No pipeline runs found.
+	}
+
+	// Build dynamic query with optional filters.
+	query := "SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at FROM entity_mappings WHERE run_id = ?"
+	args := []any{runID}
+
+	if entityType != "" {
+		query += " AND entity_type = ?"
+		args = append(args, entityType)
+	}
+	if status != "" {
+		query += " AND status = ?"
+		args = append(args, status)
+	}
+
+	query += " ORDER BY created_at LIMIT 500"
+
+	rows, err := h.rawDB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var mappings []queries.EntityMapping
+	for rows.Next() {
+		var m queries.EntityMapping
+		if err := rows.Scan(
+			&m.ID, &m.RunID, &m.LocalID, &m.PlentyID,
+			&m.EntityType, &m.Stage, &m.Status, &m.ErrorMessage,
+			&m.CreatedAt, &m.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		mappings = append(mappings, m)
+	}
+	return mappings, rows.Err()
 }
