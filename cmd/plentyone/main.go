@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/lipgloss/table"
 	"github.com/janemig/plentyone/internal/app"
 	"github.com/janemig/plentyone/internal/domain"
 	"github.com/janemig/plentyone/internal/generate/product"
@@ -424,12 +425,153 @@ func runPush(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+var statusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show pipeline and job status",
+	RunE:  runStatus,
+}
+
+func runStatus(cmd *cobra.Command, args []string) error {
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	jobID, _ := cmd.Flags().GetInt64("job-id")
+	runID, _ := cmd.Flags().GetInt64("run-id")
+
+	// Open DB connection.
+	db, err := storage.NewDB(cfg.Database)
+	if err != nil {
+		return fmt.Errorf("connecting to database: %w", err)
+	}
+	defer db.Close()
+	q := queries.New(db)
+
+	// Determine what to show based on flags.
+	switch {
+	case runID > 0:
+		// Case A: --run-id provided -- show specific pipeline run details.
+		run, err := q.GetPipelineRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("getting pipeline run %d: %w", runID, err)
+		}
+		fmt.Printf("Pipeline Run #%d (Job #%d)\n", run.ID, run.JobID)
+		fmt.Printf("Status: %s\n", run.Status)
+		if run.CurrentStage.Valid {
+			fmt.Printf("Current Stage: %s\n", run.CurrentStage.String)
+		}
+		if run.ErrorMessage.Valid {
+			fmt.Printf("Error: %s\n", run.ErrorMessage.String)
+		}
+
+	case jobID > 0:
+		// Case B: --job-id provided -- show latest pipeline run for that job.
+		job, err := q.GetJob(ctx, jobID)
+		if err != nil {
+			return fmt.Errorf("getting job %d: %w", jobID, err)
+		}
+		fmt.Printf("Job #%d: %s (%s)\n", job.ID, job.Name, job.Status)
+
+		run, err := q.GetPipelineRunByJobLatest(ctx, jobID)
+		if err != nil {
+			// No pipeline runs -- just show job info.
+			fmt.Println("No pipeline runs found for this job.")
+			return nil
+		}
+		fmt.Printf("\nLatest Pipeline Run #%d (%s)\n", run.ID, run.Status)
+		runID = run.ID
+
+	default:
+		// Case C: no flags -- show recent jobs overview.
+		jobs, err := q.ListRecentJobs(ctx, 10)
+		if err != nil {
+			return fmt.Errorf("listing recent jobs: %w", err)
+		}
+		if len(jobs) == 0 {
+			fmt.Println("No jobs found.")
+			return nil
+		}
+
+		t := table.New().
+			Headers("ID", "Name", "Type", "Status", "Created").
+			BorderRow(true)
+
+		for _, job := range jobs {
+			t.Row(
+				fmt.Sprint(job.ID),
+				job.Name,
+				job.JobType,
+				job.Status,
+				job.CreatedAt.Format("2006-01-02 15:04"),
+			)
+		}
+
+		fmt.Println(t.Render())
+		return nil
+	}
+
+	// Stage details (for Case A and B when a run exists).
+	if runID > 0 {
+		stages, err := q.ListStageStatesByRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("listing stage states: %w", err)
+		}
+
+		if len(stages) > 0 {
+			fmt.Println()
+			t := table.New().
+				Headers("Stage", "Status", "Processed", "Total", "Duration").
+				BorderRow(true)
+
+			for _, stage := range stages {
+				durationStr := "-"
+				if stage.StartedAt.Valid && stage.CompletedAt.Valid {
+					d := stage.CompletedAt.Time.Sub(stage.StartedAt.Time)
+					durationStr = fmt.Sprintf("%.0fs", d.Seconds())
+				}
+				t.Row(
+					stage.StageName,
+					stage.Status,
+					fmt.Sprint(stage.Processed),
+					fmt.Sprint(stage.Total),
+					durationStr,
+				)
+			}
+
+			fmt.Println(t.Render())
+		}
+
+		// Failed items summary.
+		failedCount, err := q.CountFailedByRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("counting failed items: %w", err)
+		}
+		if failedCount > 0 {
+			fmt.Printf("\nFlagged items: %d\n", failedCount)
+			failed, _ := q.ListFailedMappingsByRun(ctx, runID)
+			for i, f := range failed {
+				if i >= 10 {
+					fmt.Printf("  ... and %d more\n", failedCount-10)
+					break
+				}
+				errMsg := ""
+				if f.ErrorMessage.Valid {
+					errMsg = f.ErrorMessage.String
+				}
+				fmt.Printf("  - %s #%d: %s\n", f.EntityType, f.LocalID, errMsg)
+			}
+		}
+	}
+
+	return nil
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(pushCmd)
+	rootCmd.AddCommand(statusCmd)
 
 	migrateCmd.AddCommand(migrateUpCmd)
 	migrateCmd.AddCommand(migrateDownCmd)
@@ -446,4 +588,7 @@ func init() {
 	pushCmd.Flags().Bool("resume", false, "resume the latest pipeline run for this job")
 	pushCmd.Flags().Bool("reset-failed", false, "reset failed entity mappings before resuming")
 	_ = pushCmd.MarkFlagRequired("job-id")
+
+	statusCmd.Flags().Int64("job-id", 0, "filter by job ID")
+	statusCmd.Flags().Int64("run-id", 0, "filter by pipeline run ID")
 }
