@@ -7,6 +7,14 @@ import (
 	"github.com/janemig/plentyone/internal/generate"
 )
 
+// Compile-time checks: Provider implements both generate.Generator and generate.ImageGenerator.
+var _ generate.Generator = (*Provider)(nil)
+var _ generate.ImageGenerator = (*Provider)(nil)
+
+// mockPNG1x1 is a 1x1 pixel transparent PNG encoded as base64.
+// Used for deterministic test output without network calls.
+const mockPNG1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
 // Provider is a mock Generator that returns deterministic, canned product data.
 // It makes zero network calls and is intended for development and testing.
 type Provider struct{}
@@ -48,4 +56,13 @@ func (p *Provider) GeneratePropertyValues(_ context.Context, req generate.Proper
 		}
 	}
 	return &generate.PropertyValues{Values: values}, nil
+}
+
+// GenerateProductImage returns a deterministic 1x1 transparent PNG for testing.
+func (p *Provider) GenerateProductImage(_ context.Context, req generate.ImageRequest) (*generate.ImageResult, error) {
+	return &generate.ImageResult{
+		Base64Data:    mockPNG1x1,
+		RevisedPrompt: req.BuildPrompt(),
+		Format:        "png",
+	}, nil
 }

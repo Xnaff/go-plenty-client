@@ -54,3 +54,44 @@ type PropertyValue struct {
 	FloatValue     *float64 `json:"floatValue,omitempty"`
 	SelectionValue string   `json:"selectionValue,omitempty"`
 }
+
+// ImageRequest describes what product image to generate.
+type ImageRequest struct {
+	ProductName string // Base product name
+	ProductType string // e.g., "electronics", "food", "fashion"
+	Category    string // Category context for relevance
+	Style       string // Image style instructions (default: "product photography, white background, studio lighting")
+	Size        string // Image dimensions (default: "1024x1024")
+	Quality     string // Image quality level (default: "medium")
+}
+
+// BuildPrompt constructs a text prompt for AI image generation from the request fields.
+func (r ImageRequest) BuildPrompt() string {
+	style := r.Style
+	if style == "" {
+		style = "product photography, white background, studio lighting"
+	}
+	return "A professional product photo of " + r.ProductName +
+		", a " + r.ProductType + " product. " +
+		style + ". Clean, commercial e-commerce image suitable for an online store."
+}
+
+// ImageResult is the output from AI image generation.
+type ImageResult struct {
+	Base64Data    string // Base64-encoded image data
+	RevisedPrompt string // The prompt as revised/interpreted by the AI model
+	Format        string // Image format: "png", "webp", or "jpeg"
+}
+
+// imageRequestDefaults returns defaults for unset fields.
+func imageRequestDefaults(req *ImageRequest) {
+	if req.Style == "" {
+		req.Style = "product photography, white background, studio lighting"
+	}
+	if req.Size == "" {
+		req.Size = "1024x1024"
+	}
+	if req.Quality == "" {
+		req.Quality = "medium"
+	}
+}

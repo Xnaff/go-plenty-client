@@ -21,3 +21,14 @@ type Generator interface {
 	// Name returns the provider name for logging and configuration purposes.
 	Name() string
 }
+
+// ImageGenerator is the interface for AI image generation providers.
+// This is separate from Generator because not all providers support image generation.
+type ImageGenerator interface {
+	// GenerateProductImage generates a product photo from a text prompt.
+	// Returns base64-encoded image data suitable for upload to PlentyONE.
+	GenerateProductImage(ctx context.Context, req ImageRequest) (*ImageResult, error)
+
+	// Name returns the provider name for logging and configuration purposes.
+	Name() string
+}
