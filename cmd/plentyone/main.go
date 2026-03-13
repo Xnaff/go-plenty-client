@@ -573,9 +573,12 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 // Sensitive keys for config masking (matched by leaf key name, any nesting level).
 var sensitiveKeys = map[string]bool{
-	"api_key":  true,
-	"password": true,
-	"username": true,
+	"api_key":      true,
+	"password":     true,
+	"username":     true,
+	"unsplash_key": true,
+	"pexels_key":   true,
+	"pixabay_key":  true,
 }
 
 func maskSettings(settings map[string]any) map[string]any {

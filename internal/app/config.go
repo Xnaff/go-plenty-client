@@ -9,12 +9,56 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Log      LogConfig      `mapstructure:"log"`
-	Pipeline PipelineConfig `mapstructure:"pipeline"`
-	AI       AIConfig       `mapstructure:"ai"`
-	API      APIConfig      `mapstructure:"api"`
+	Server      ServerConfig      `mapstructure:"server"`
+	Database    DatabaseConfig    `mapstructure:"database"`
+	Log         LogConfig         `mapstructure:"log"`
+	Pipeline    PipelineConfig    `mapstructure:"pipeline"`
+	AI          AIConfig          `mapstructure:"ai"`
+	API         APIConfig         `mapstructure:"api"`
+	Images      ImageConfig       `mapstructure:"images"`
+	StockPhotos StockPhotoConfig  `mapstructure:"stock_photos"`
+	Enrichment  EnrichmentConfig  `mapstructure:"enrichment"`
+	Quality     QualityConfig     `mapstructure:"quality"`
+}
+
+// ImageConfig holds AI image generation settings.
+type ImageConfig struct {
+	Provider   string `mapstructure:"provider"`    // AI image provider: openai, mock
+	Model      string `mapstructure:"model"`       // gpt-image-1, gpt-image-1-mini
+	Quality    string `mapstructure:"quality"`      // low, medium, high
+	Size       string `mapstructure:"size"`         // 1024x1024, 1792x1024, 1024x1792
+	Format     string `mapstructure:"format"`       // png, webp, jpeg
+	PerProduct int    `mapstructure:"per_product"`  // AI images per product
+}
+
+// StockPhotoConfig holds stock photo sourcing settings.
+type StockPhotoConfig struct {
+	Enabled     bool     `mapstructure:"enabled"`
+	Providers   []string `mapstructure:"providers"`    // Order = priority: [unsplash, pexels, pixabay]
+	PerProduct  int      `mapstructure:"per_product"`
+	MinWidth    int      `mapstructure:"min_width"`
+	MinHeight   int      `mapstructure:"min_height"`
+	Orientation string   `mapstructure:"orientation"`  // landscape, portrait, square
+	UnsplashKey string   `mapstructure:"unsplash_key"`
+	PexelsKey   string   `mapstructure:"pexels_key"`
+	PixabayKey  string   `mapstructure:"pixabay_key"`
+}
+
+// EnrichmentConfig holds public database enrichment settings.
+type EnrichmentConfig struct {
+	Enabled  bool     `mapstructure:"enabled"`
+	Sources  []string `mapstructure:"sources"`     // [openfoodfacts, wikidata]
+	CacheTTL string   `mapstructure:"cache_ttl"`   // e.g., "24h"
+}
+
+// QualityConfig holds quality scoring settings.
+type QualityConfig struct {
+	Enabled         bool    `mapstructure:"enabled"`
+	MinOverallScore float64 `mapstructure:"min_overall_score"`
+	MinTextScore    float64 `mapstructure:"min_text_score"`
+	MinImageScore   float64 `mapstructure:"min_image_score"`
+	MinDataScore    float64 `mapstructure:"min_data_score"`
+	FlagAction      string  `mapstructure:"flag_action"`   // warn, skip, fail
 }
 
 // APIConfig holds PlentyONE REST API connection settings.
@@ -103,6 +147,27 @@ func LoadConfig(cfgFile string) (*Config, error) {
 	viper.SetDefault("api.password", "")
 	viper.SetDefault("api.rate_limit", 40)
 	viper.SetDefault("api.timeout", 60)
+	viper.SetDefault("images.provider", "mock")
+	viper.SetDefault("images.model", "gpt-image-1")
+	viper.SetDefault("images.quality", "medium")
+	viper.SetDefault("images.size", "1024x1024")
+	viper.SetDefault("images.format", "png")
+	viper.SetDefault("images.per_product", 1)
+	viper.SetDefault("stock_photos.enabled", false)
+	viper.SetDefault("stock_photos.providers", []string{"unsplash", "pexels", "pixabay"})
+	viper.SetDefault("stock_photos.per_product", 2)
+	viper.SetDefault("stock_photos.min_width", 800)
+	viper.SetDefault("stock_photos.min_height", 600)
+	viper.SetDefault("stock_photos.orientation", "landscape")
+	viper.SetDefault("enrichment.enabled", false)
+	viper.SetDefault("enrichment.sources", []string{"openfoodfacts", "wikidata"})
+	viper.SetDefault("enrichment.cache_ttl", "24h")
+	viper.SetDefault("quality.enabled", true)
+	viper.SetDefault("quality.min_overall_score", 0.6)
+	viper.SetDefault("quality.min_text_score", 0.5)
+	viper.SetDefault("quality.min_image_score", 0.4)
+	viper.SetDefault("quality.min_data_score", 0.3)
+	viper.SetDefault("quality.flag_action", "warn")
 
 	// Environment variables: PLENTYONE_DATABASE_HOST, etc.
 	viper.SetEnvPrefix("PLENTYONE")
