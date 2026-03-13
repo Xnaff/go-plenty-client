@@ -250,6 +250,10 @@ UPDATE entity_mappings
 SET status = 'pending', error_message = NULL, updated_at = NOW()
 WHERE run_id = ? AND status = 'failed';
 
+-- name: CreateProductCategory :exec
+INSERT INTO product_categories (product_id, category_id)
+VALUES (?, ?);
+
 -- name: ListCategoryIDsByProduct :many
 SELECT category_id FROM product_categories
 WHERE product_id = ?

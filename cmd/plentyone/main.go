@@ -224,9 +224,8 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("updating job status: %w", err)
 	}
 
-	// Create one category per job.
-	var categoryCreated bool
-	_ = categoryCreated
+	// Create one category per job; track its ID for product_categories linking.
+	var categoryID int64
 
 	for i := 0; i < count; i++ {
 		select {
@@ -286,8 +285,8 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create category once per job.
-		if !categoryCreated {
-			_, err := q.CreateCategory(ctx, queries.CreateCategoryParams{
+		if categoryID == 0 {
+			catID, err := q.CreateCategory(ctx, queries.CreateCategoryParams{
 				JobID:     jobID,
 				ParentID:  sql.NullInt64{},
 				Name:      niche,
@@ -298,7 +297,15 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return fmt.Errorf("creating category: %w", err)
 			}
-			categoryCreated = true
+			categoryID = catID
+		}
+
+		// Link product to category.
+		if err := q.CreateProductCategory(ctx, queries.CreateProductCategoryParams{
+			ProductID:  productID,
+			CategoryID: categoryID,
+		}); err != nil {
+			return fmt.Errorf("linking product to category: %w", err)
 		}
 
 		// Persist texts for each language.

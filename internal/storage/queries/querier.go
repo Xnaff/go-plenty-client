@@ -23,6 +23,7 @@ type Querier interface {
 	CreatePipelineRun(ctx context.Context, arg CreatePipelineRunParams) (int64, error)
 	// Products
 	CreateProduct(ctx context.Context, arg CreateProductParams) (int64, error)
+	CreateProductCategory(ctx context.Context, arg CreateProductCategoryParams) error
 	// Quality Scores
 	CreateQualityScore(ctx context.Context, arg CreateQualityScoreParams) (int64, error)
 	// Stage States

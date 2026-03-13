@@ -235,6 +235,21 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (i
 	return result.LastInsertId()
 }
 
+const createProductCategory = `-- name: CreateProductCategory :exec
+INSERT INTO product_categories (product_id, category_id)
+VALUES (?, ?)
+`
+
+type CreateProductCategoryParams struct {
+	ProductID  int64 `json:"product_id"`
+	CategoryID int64 `json:"category_id"`
+}
+
+func (q *Queries) CreateProductCategory(ctx context.Context, arg CreateProductCategoryParams) error {
+	_, err := q.db.ExecContext(ctx, createProductCategory, arg.ProductID, arg.CategoryID)
+	return err
+}
+
 const createQualityScore = `-- name: CreateQualityScore :execlastid
 
 INSERT INTO quality_scores (product_id, job_id, overall, text_score, image_score, data_score, pass, details)
