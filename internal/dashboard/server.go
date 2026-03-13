@@ -47,6 +47,10 @@ func NewRouter(h *Handlers, broker *Broker) chi.Router {
 		r.Post("/api/config", h.HandleConfigUpdate)
 		r.Get("/api/config/edit/*", h.HandleConfigEdit)
 		r.Get("/api/config/cancel/*", h.HandleConfigCancel)
+
+		// Bulk action API routes.
+		r.Post("/api/mappings/retry", h.HandleBulkRetry)
+		r.Post("/api/mappings/skip", h.HandleBulkSkip)
 	})
 
 	return r

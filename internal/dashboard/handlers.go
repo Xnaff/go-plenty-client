@@ -379,6 +379,73 @@ func (h *Handlers) HandleConfigCancel(w http.ResponseWriter, r *http.Request) {
 	views.ConfigFieldFragment(field, false).Render(r.Context(), w)
 }
 
+// HandleBulkRetry resets all failed entity mappings for a pipeline run to pending status.
+func (h *Handlers) HandleBulkRetry(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if err := r.ParseForm(); err != nil {
+		views.BulkActionResult("Bad form data.", false).Render(ctx, w)
+		return
+	}
+
+	runIDStr := r.FormValue("run_id")
+	runID, err := strconv.ParseInt(runIDStr, 10, 64)
+	if err != nil {
+		views.BulkActionResult("Invalid run ID.", false).Render(ctx, w)
+		return
+	}
+
+	if err := h.db.ResetFailedMappingsForRetry(ctx, runID); err != nil {
+		slog.Error("bulk retry failed", "run_id", runID, "error", err)
+		views.BulkActionResult("Failed to reset items: "+err.Error(), false).Render(ctx, w)
+		return
+	}
+
+	slog.Info("bulk retry completed", "run_id", runID)
+	views.BulkActionResult("Failed items have been reset for retry.", true).Render(ctx, w)
+}
+
+// HandleBulkSkip marks all failed entity mappings for a pipeline run as skipped.
+func (h *Handlers) HandleBulkSkip(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if err := r.ParseForm(); err != nil {
+		views.BulkActionResult("Bad form data.", false).Render(ctx, w)
+		return
+	}
+
+	runIDStr := r.FormValue("run_id")
+	runID, err := strconv.ParseInt(runIDStr, 10, 64)
+	if err != nil {
+		views.BulkActionResult("Invalid run ID.", false).Render(ctx, w)
+		return
+	}
+
+	failed, err := h.db.ListFailedMappingsByRun(ctx, runID)
+	if err != nil {
+		slog.Error("listing failed mappings for skip", "run_id", runID, "error", err)
+		views.BulkActionResult("Failed to list items: "+err.Error(), false).Render(ctx, w)
+		return
+	}
+
+	skipped := 0
+	for _, m := range failed {
+		if err := h.db.UpdateMappingStatus(ctx, queries.UpdateMappingStatusParams{
+			Status:       "skipped",
+			PlentyID:     m.PlentyID,
+			ErrorMessage: sql.NullString{},
+			ID:           m.ID,
+		}); err != nil {
+			slog.Error("skipping mapping", "mapping_id", m.ID, "error", err)
+			continue
+		}
+		skipped++
+	}
+
+	slog.Info("bulk skip completed", "run_id", runID, "count", skipped)
+	views.BulkActionResult(fmt.Sprintf("Skipped %d failed items.", skipped), true).Render(ctx, w)
+}
+
 // HandleMappings renders the mapping overview page with filtering.
 func (h *Handlers) HandleMappings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
