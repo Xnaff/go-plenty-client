@@ -37,6 +37,15 @@ type Category struct {
 	CreatedAt time.Time     `json:"created_at"`
 }
 
+type EnrichmentCache struct {
+	ID        int64           `json:"id"`
+	Source    string          `json:"source"`
+	QueryKey  string          `json:"query_key"`
+	Data      json.RawMessage `json:"data"`
+	ExpiresAt time.Time       `json:"expires_at"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
 type EntityMapping struct {
 	ID           int64          `json:"id"`
 	RunID        int64          `json:"run_id"`
@@ -126,6 +135,19 @@ type PropertyText struct {
 	PropertyID  int64  `json:"property_id"`
 	Lang        string `json:"lang"`
 	Content     string `json:"content"`
+}
+
+type QualityScore struct {
+	ID         int64           `json:"id"`
+	ProductID  int64           `json:"product_id"`
+	JobID      int64           `json:"job_id"`
+	Overall    string          `json:"overall"`
+	TextScore  string          `json:"text_score"`
+	ImageScore string          `json:"image_score"`
+	DataScore  string          `json:"data_score"`
+	Pass       bool            `json:"pass"`
+	Details    json.RawMessage `json:"details"`
+	CreatedAt  time.Time       `json:"created_at"`
 }
 
 type StageState struct {

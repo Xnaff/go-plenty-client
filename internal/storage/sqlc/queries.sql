@@ -264,3 +264,44 @@ LIMIT ?;
 -- name: DeleteOAuthToken :exec
 DELETE FROM oauth_tokens
 WHERE shop_url = ?;
+
+-- Quality Scores
+
+-- name: CreateQualityScore :execlastid
+INSERT INTO quality_scores (product_id, job_id, overall, text_score, image_score, data_score, pass, details)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetQualityScoreByProduct :one
+SELECT id, product_id, job_id, overall, text_score, image_score, data_score, pass, details, created_at
+FROM quality_scores
+WHERE product_id = ?;
+
+-- name: ListQualityScoresByJob :many
+SELECT id, product_id, job_id, overall, text_score, image_score, data_score, pass, details, created_at
+FROM quality_scores
+WHERE job_id = ?
+ORDER BY overall DESC;
+
+-- name: ListFailedQualityScoresByJob :many
+SELECT id, product_id, job_id, overall, text_score, image_score, data_score, pass, details, created_at
+FROM quality_scores
+WHERE job_id = ? AND pass = FALSE
+ORDER BY overall ASC;
+
+-- Enrichment Cache
+
+-- name: GetEnrichmentCache :one
+SELECT id, source, query_key, data, expires_at, created_at
+FROM enrichment_cache
+WHERE source = ? AND query_key = ? AND expires_at > NOW();
+
+-- name: UpsertEnrichmentCache :exec
+INSERT INTO enrichment_cache (source, query_key, data, expires_at)
+VALUES (?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+    data = VALUES(data),
+    expires_at = VALUES(expires_at);
+
+-- name: DeleteExpiredEnrichmentCache :exec
+DELETE FROM enrichment_cache
+WHERE expires_at <= NOW();

@@ -235,6 +235,41 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (i
 	return result.LastInsertId()
 }
 
+const createQualityScore = `-- name: CreateQualityScore :execlastid
+
+INSERT INTO quality_scores (product_id, job_id, overall, text_score, image_score, data_score, pass, details)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type CreateQualityScoreParams struct {
+	ProductID  int64           `json:"product_id"`
+	JobID      int64           `json:"job_id"`
+	Overall    string          `json:"overall"`
+	TextScore  string          `json:"text_score"`
+	ImageScore string          `json:"image_score"`
+	DataScore  string          `json:"data_score"`
+	Pass       bool            `json:"pass"`
+	Details    json.RawMessage `json:"details"`
+}
+
+// Quality Scores
+func (q *Queries) CreateQualityScore(ctx context.Context, arg CreateQualityScoreParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createQualityScore,
+		arg.ProductID,
+		arg.JobID,
+		arg.Overall,
+		arg.TextScore,
+		arg.ImageScore,
+		arg.DataScore,
+		arg.Pass,
+		arg.Details,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
 const createStageState = `-- name: CreateStageState :execlastid
 
 INSERT INTO stage_states (run_id, stage_name, status)
@@ -322,6 +357,16 @@ func (q *Queries) CreateVariation(ctx context.Context, arg CreateVariationParams
 	return result.LastInsertId()
 }
 
+const deleteExpiredEnrichmentCache = `-- name: DeleteExpiredEnrichmentCache :exec
+DELETE FROM enrichment_cache
+WHERE expires_at <= NOW()
+`
+
+func (q *Queries) DeleteExpiredEnrichmentCache(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredEnrichmentCache)
+	return err
+}
+
 const deleteOAuthToken = `-- name: DeleteOAuthToken :exec
 DELETE FROM oauth_tokens
 WHERE shop_url = ?
@@ -330,6 +375,33 @@ WHERE shop_url = ?
 func (q *Queries) DeleteOAuthToken(ctx context.Context, shopUrl string) error {
 	_, err := q.db.ExecContext(ctx, deleteOAuthToken, shopUrl)
 	return err
+}
+
+const getEnrichmentCache = `-- name: GetEnrichmentCache :one
+
+SELECT id, source, query_key, data, expires_at, created_at
+FROM enrichment_cache
+WHERE source = ? AND query_key = ? AND expires_at > NOW()
+`
+
+type GetEnrichmentCacheParams struct {
+	Source   string `json:"source"`
+	QueryKey string `json:"query_key"`
+}
+
+// Enrichment Cache
+func (q *Queries) GetEnrichmentCache(ctx context.Context, arg GetEnrichmentCacheParams) (EnrichmentCache, error) {
+	row := q.db.QueryRowContext(ctx, getEnrichmentCache, arg.Source, arg.QueryKey)
+	var i EnrichmentCache
+	err := row.Scan(
+		&i.ID,
+		&i.Source,
+		&i.QueryKey,
+		&i.Data,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getEntityMapping = `-- name: GetEntityMapping :one
@@ -531,6 +603,30 @@ func (q *Queries) GetProduct(ctx context.Context, id int64) (Product, error) {
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getQualityScoreByProduct = `-- name: GetQualityScoreByProduct :one
+SELECT id, product_id, job_id, overall, text_score, image_score, data_score, pass, details, created_at
+FROM quality_scores
+WHERE product_id = ?
+`
+
+func (q *Queries) GetQualityScoreByProduct(ctx context.Context, productID int64) (QualityScore, error) {
+	row := q.db.QueryRowContext(ctx, getQualityScoreByProduct, productID)
+	var i QualityScore
+	err := row.Scan(
+		&i.ID,
+		&i.ProductID,
+		&i.JobID,
+		&i.Overall,
+		&i.TextScore,
+		&i.ImageScore,
+		&i.DataScore,
+		&i.Pass,
+		&i.Details,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -864,6 +960,47 @@ func (q *Queries) ListFailedMappingsByRun(ctx context.Context, runID int64) ([]E
 	return items, nil
 }
 
+const listFailedQualityScoresByJob = `-- name: ListFailedQualityScoresByJob :many
+SELECT id, product_id, job_id, overall, text_score, image_score, data_score, pass, details, created_at
+FROM quality_scores
+WHERE job_id = ? AND pass = FALSE
+ORDER BY overall ASC
+`
+
+func (q *Queries) ListFailedQualityScoresByJob(ctx context.Context, jobID int64) ([]QualityScore, error) {
+	rows, err := q.db.QueryContext(ctx, listFailedQualityScoresByJob, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []QualityScore{}
+	for rows.Next() {
+		var i QualityScore
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProductID,
+			&i.JobID,
+			&i.Overall,
+			&i.TextScore,
+			&i.ImageScore,
+			&i.DataScore,
+			&i.Pass,
+			&i.Details,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listImagesByProduct = `-- name: ListImagesByProduct :many
 SELECT id, product_id, source_url, local_path, position, source_type, attribution, status, created_at
 FROM images
@@ -1090,6 +1227,47 @@ func (q *Queries) ListPropertiesByJob(ctx context.Context, jobID int64) ([]Prope
 			&i.Name,
 			&i.PropertyType,
 			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listQualityScoresByJob = `-- name: ListQualityScoresByJob :many
+SELECT id, product_id, job_id, overall, text_score, image_score, data_score, pass, details, created_at
+FROM quality_scores
+WHERE job_id = ?
+ORDER BY overall DESC
+`
+
+func (q *Queries) ListQualityScoresByJob(ctx context.Context, jobID int64) ([]QualityScore, error) {
+	rows, err := q.db.QueryContext(ctx, listQualityScoresByJob, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []QualityScore{}
+	for rows.Next() {
+		var i QualityScore
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProductID,
+			&i.JobID,
+			&i.Overall,
+			&i.TextScore,
+			&i.ImageScore,
+			&i.DataScore,
+			&i.Pass,
+			&i.Details,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -1398,6 +1576,31 @@ func (q *Queries) UpdateStageStateTimestamps(ctx context.Context, arg UpdateStag
 		arg.StartedAt,
 		arg.CompletedAt,
 		arg.ID,
+	)
+	return err
+}
+
+const upsertEnrichmentCache = `-- name: UpsertEnrichmentCache :exec
+INSERT INTO enrichment_cache (source, query_key, data, expires_at)
+VALUES (?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+    data = VALUES(data),
+    expires_at = VALUES(expires_at)
+`
+
+type UpsertEnrichmentCacheParams struct {
+	Source    string          `json:"source"`
+	QueryKey  string          `json:"query_key"`
+	Data      json.RawMessage `json:"data"`
+	ExpiresAt time.Time       `json:"expires_at"`
+}
+
+func (q *Queries) UpsertEnrichmentCache(ctx context.Context, arg UpsertEnrichmentCacheParams) error {
+	_, err := q.db.ExecContext(ctx, upsertEnrichmentCache,
+		arg.Source,
+		arg.QueryKey,
+		arg.Data,
+		arg.ExpiresAt,
 	)
 	return err
 }
