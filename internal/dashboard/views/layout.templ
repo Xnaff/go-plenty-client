@@ -1,0 +1,71 @@
+package views
+
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } - PlentyONE Dashboard</title>
+			<link href="/static/css/output.css" rel="stylesheet"/>
+			<script src="/static/js/htmx.min.js"></script>
+			<script src="/static/js/sse.js"></script>
+		</head>
+		<body class="bg-gray-50 min-h-screen">
+			@Nav()
+			<main id="main-content" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
+
+templ Nav() {
+	<nav class="bg-white shadow-sm border-b border-gray-200">
+		<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+			<div class="flex items-center justify-between h-16">
+				<div class="flex-shrink-0">
+					<span class="text-lg font-semibold text-gray-900">PlentyONE Dashboard</span>
+				</div>
+				<div class="flex space-x-1">
+					<a
+						href="/"
+						hx-get="/"
+						hx-target="#main-content"
+						hx-push-url="true"
+						class="text-sm font-medium text-gray-500 hover:text-gray-700 px-3 py-2 rounded-md hover:bg-gray-100"
+					>
+						Pipeline
+					</a>
+					<a
+						href="/preview"
+						hx-get="/preview"
+						hx-target="#main-content"
+						hx-push-url="true"
+						class="text-sm font-medium text-gray-500 hover:text-gray-700 px-3 py-2 rounded-md hover:bg-gray-100"
+					>
+						Preview
+					</a>
+					<a
+						href="/mappings"
+						hx-get="/mappings"
+						hx-target="#main-content"
+						hx-push-url="true"
+						class="text-sm font-medium text-gray-500 hover:text-gray-700 px-3 py-2 rounded-md hover:bg-gray-100"
+					>
+						Mappings
+					</a>
+					<a
+						href="/config"
+						hx-get="/config"
+						hx-target="#main-content"
+						hx-push-url="true"
+						class="text-sm font-medium text-gray-500 hover:text-gray-700 px-3 py-2 rounded-md hover:bg-gray-100"
+					>
+						Config
+					</a>
+				</div>
+			</div>
+		</div>
+	</nav>
+}
