@@ -13,24 +13,34 @@ import (
 var staticFS embed.FS
 
 // NewRouter creates a chi router with middleware, static file serving, and page routes.
-func NewRouter(h *Handlers) chi.Router {
+func NewRouter(h *Handlers, broker *Broker) chi.Router {
 	r := chi.NewRouter()
 
-	// Middleware stack.
+	// Middleware stack (applied to all routes).
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Compress(5))
 
-	// Serve static files from embedded filesystem.
-	staticSub, _ := fs.Sub(staticFS, "static")
-	r.Handle("/static/*", http.StripPrefix("/static/",
-		http.FileServer(http.FS(staticSub))))
+	// SSE endpoint must NOT be wrapped by Compress middleware (buffering breaks SSE).
+	r.Get("/events", broker.ServeHTTP)
 
-	// Dashboard page routes.
-	r.Get("/", h.HandlePipelineStatus)
-	r.Get("/preview", h.HandleDataPreview)
-	r.Get("/config", h.HandleConfig)
-	r.Get("/mappings", h.HandleMappings)
+	// All other routes get compression.
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Compress(5))
+
+		// Serve static files from embedded filesystem.
+		staticSub, _ := fs.Sub(staticFS, "static")
+		r.Handle("/static/*", http.StripPrefix("/static/",
+			http.FileServer(http.FS(staticSub))))
+
+		// Dashboard page routes.
+		r.Get("/", h.HandlePipelineStatus)
+		r.Get("/preview", h.HandleDataPreview)
+		r.Get("/config", h.HandleConfig)
+		r.Get("/mappings", h.HandleMappings)
+
+		// API routes for HTMX partial updates.
+		r.Get("/api/pipeline/{runID}/stages", h.HandleStagesFragment)
+	})
 
 	return r
 }

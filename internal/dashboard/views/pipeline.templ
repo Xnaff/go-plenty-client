@@ -1,0 +1,96 @@
+package views
+
+import (
+	"fmt"
+	"strings"
+	"github.com/janemig/plentyone/internal/storage/queries"
+)
+
+// PipelineRunView is the view model for a single pipeline run card.
+type PipelineRunView struct {
+	Job         queries.Job
+	Run         queries.PipelineRun
+	Stages      []queries.StageState
+	FailedCount int64
+}
+
+// stagePercent calculates the progress percentage for a stage.
+func stagePercent(s queries.StageState) int {
+	if s.Total == 0 {
+		return 0
+	}
+	return int(float64(s.Processed) / float64(s.Total) * 100)
+}
+
+// capitalize returns the string with the first letter uppercased.
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// stageColor returns a Tailwind bg color class based on stage status.
+func stageColor(status string) string {
+	switch status {
+	case "completed":
+		return "bg-green-500"
+	case "running":
+		return "bg-blue-500"
+	case "failed":
+		return "bg-red-500"
+	default:
+		return "bg-gray-400"
+	}
+}
+
+templ PipelineStatusPage(runs []PipelineRunView) {
+	@Layout("Pipeline") {
+		@PageHeader("Pipeline Status")
+		if len(runs) == 0 {
+			@EmptyState("No pipeline runs found. Use 'plentyone push' to start a pipeline.")
+		} else {
+			<div id="pipeline-runs" hx-ext="sse" sse-connect="/events" sse-swap="stage_update">
+				for _, run := range runs {
+					<div class="bg-white rounded-lg shadow mb-4 p-6">
+						<div class="flex items-center justify-between mb-4">
+							<div>
+								<h2 class="text-lg font-semibold text-gray-900">{ run.Job.Name }</h2>
+								<p class="text-sm text-gray-500">
+									Job #{ fmt.Sprint(run.Job.ID) } &middot; Run #{ fmt.Sprint(run.Run.ID) } &middot; { run.Run.CreatedAt.Format("2006-01-02 15:04") }
+								</p>
+							</div>
+							@StatusBadge(run.Run.Status)
+						</div>
+						@StageProgressFragment(run.Stages, run.FailedCount)
+					</div>
+				}
+			</div>
+		}
+	}
+}
+
+templ StageProgressFragment(stages []queries.StageState, failedCount int64) {
+	<div class="space-y-3">
+		for _, stage := range stages {
+			<div>
+				<div class="flex items-center justify-between mb-1">
+					<span class="text-sm font-medium text-gray-700">{ capitalize(stage.StageName) }</span>
+					<span class="text-xs text-gray-500">
+						{ fmt.Sprint(stage.Processed) }/{ fmt.Sprint(stage.Total) }
+						&middot;
+						@StatusBadge(stage.Status)
+					</span>
+				</div>
+				@ProgressBar(stagePercent(stage), stageColor(stage.Status))
+			</div>
+		}
+		if failedCount > 0 {
+			<div class="mt-2">
+				<a href={ templ.SafeURL(fmt.Sprintf("/mappings?status=failed")) } class="text-sm text-red-600 hover:text-red-800 font-medium">
+					{ fmt.Sprintf("%d failed items", failedCount) }
+				</a>
+			</div>
+		}
+	</div>
+}

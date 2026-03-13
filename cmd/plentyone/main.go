@@ -680,9 +680,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer db.Close()
 	q := queries.New(db)
 
+	// Create SSE broker and start event loop.
+	broker := dashboard.NewBroker()
+	go broker.Run(ctx)
+
 	// Create handlers and router.
-	handlers := dashboard.NewHandlers(q, db, cfg)
-	router := dashboard.NewRouter(handlers)
+	handlers := dashboard.NewHandlers(q, db, cfg, broker)
+	router := dashboard.NewRouter(handlers, broker)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	slog.Info("starting dashboard", slog.String("addr", addr))
