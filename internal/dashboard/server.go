@@ -42,6 +42,11 @@ func NewRouter(h *Handlers, broker *Broker) chi.Router {
 		r.Get("/api/pipeline/{runID}/stages", h.HandleStagesFragment)
 		r.Get("/api/preview/{productID}", h.HandleProductDetail)
 		r.Get("/api/mappings/filter", h.HandleMappingsFilter)
+
+		// Config API routes.
+		r.Post("/api/config", h.HandleConfigUpdate)
+		r.Get("/api/config/edit/*", h.HandleConfigEdit)
+		r.Get("/api/config/cancel/*", h.HandleConfigCancel)
 	})
 
 	return r

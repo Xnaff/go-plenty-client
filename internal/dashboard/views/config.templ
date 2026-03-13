@@ -1,0 +1,137 @@
+package views
+
+import (
+	"fmt"
+	"strings"
+)
+
+// ConfigSection groups config fields by top-level section.
+type ConfigSection struct {
+	Name   string
+	Fields []ConfigField
+}
+
+// ConfigField represents a single configuration key-value pair.
+type ConfigField struct {
+	Key       string // full dotted key, e.g., "ai.api_key"
+	Value     string // display value (masked if sensitive)
+	RawValue  string // actual value (for hidden input, only non-sensitive)
+	Sensitive bool   // whether this is a masked field
+	Section   string // section name for grouping
+}
+
+// sanitizeKey replaces dots with dashes for use in HTML IDs.
+func sanitizeKey(key string) string {
+	return strings.ReplaceAll(key, ".", "-")
+}
+
+templ ConfigPage(sections []ConfigSection, savedKey string) {
+	@Layout("Configuration") {
+		@PageHeader("Configuration")
+		if savedKey != "" {
+			<div class="mb-4 rounded-md bg-green-50 p-3 border border-green-200">
+				<p class="text-sm text-green-800">
+					Saved: <span class="font-medium">{ savedKey }</span>
+				</p>
+			</div>
+		}
+		if len(sections) == 0 {
+			@EmptyState("No configuration settings found.")
+		} else {
+			<div class="space-y-6">
+				for _, section := range sections {
+					<div class="bg-white rounded-lg shadow p-6">
+						<h2 class="text-lg font-semibold text-gray-900 mb-4">{ capitalize(section.Name) }</h2>
+						<div class="space-y-4">
+							for _, field := range section.Fields {
+								<div id={ fmt.Sprintf("config-field-%s", sanitizeKey(field.Key)) }>
+									@ConfigFieldFragment(field, false)
+								</div>
+							}
+						</div>
+					</div>
+				}
+			</div>
+		}
+	}
+}
+
+templ ConfigFieldFragment(field ConfigField, saved bool) {
+	<div class="flex items-center gap-4 py-2 border-b border-gray-100 last:border-b-0">
+		<label class="text-sm font-medium text-gray-700 w-48 shrink-0">{ field.Key }</label>
+		<div class="flex-1 flex items-center gap-2">
+			if field.Sensitive {
+				<span class="text-sm text-gray-500 font-mono">{ field.Value }</span>
+				<button
+					hx-get={ fmt.Sprintf("/api/config/edit/%s", field.Key) }
+					hx-target={ fmt.Sprintf("#config-field-%s", sanitizeKey(field.Key)) }
+					hx-swap="innerHTML"
+					class="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded border border-blue-200 hover:bg-blue-50"
+				>
+					Change
+				</button>
+			} else {
+				<form
+					hx-post="/api/config"
+					hx-target={ fmt.Sprintf("#config-field-%s", sanitizeKey(field.Key)) }
+					hx-swap="innerHTML"
+					class="flex items-center gap-2 flex-1"
+				>
+					<input type="hidden" name="key" value={ field.Key }/>
+					<input
+						type="text"
+						name="value"
+						value={ field.RawValue }
+						class="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-1.5 border"
+					/>
+					<button
+						type="submit"
+						class="text-xs text-white bg-blue-600 hover:bg-blue-700 font-medium px-3 py-1.5 rounded-md"
+					>
+						Save
+					</button>
+				</form>
+			}
+			if saved {
+				<span class="text-xs text-green-600 font-medium">Saved</span>
+			}
+		</div>
+	</div>
+}
+
+templ ConfigFieldEditFragment(field ConfigField) {
+	<div class="flex items-center gap-4 py-2 border-b border-gray-100 last:border-b-0">
+		<label class="text-sm font-medium text-gray-700 w-48 shrink-0">{ field.Key }</label>
+		<div class="flex-1 flex items-center gap-2">
+			<form
+				hx-post="/api/config"
+				hx-target={ fmt.Sprintf("#config-field-%s", sanitizeKey(field.Key)) }
+				hx-swap="innerHTML"
+				class="flex items-center gap-2 flex-1"
+			>
+				<input type="hidden" name="key" value={ field.Key }/>
+				<input
+					type="text"
+					name="value"
+					value=""
+					placeholder="Enter new value"
+					class="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-1.5 border"
+				/>
+				<button
+					type="submit"
+					class="text-xs text-white bg-blue-600 hover:bg-blue-700 font-medium px-3 py-1.5 rounded-md"
+				>
+					Save
+				</button>
+				<button
+					hx-get={ fmt.Sprintf("/api/config/cancel/%s", field.Key) }
+					hx-target={ fmt.Sprintf("#config-field-%s", sanitizeKey(field.Key)) }
+					hx-swap="innerHTML"
+					class="text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1.5"
+				>
+					Cancel
+				</button>
+			</form>
+		</div>
+	</div>
+}

@@ -3,14 +3,18 @@ package dashboard
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/janemig/plentyone/internal/app"
 	"github.com/janemig/plentyone/internal/dashboard/views"
 	"github.com/janemig/plentyone/internal/storage/queries"
+	"github.com/spf13/viper"
 )
 
 // Handlers holds dependencies for dashboard HTTP handlers.
@@ -186,9 +190,193 @@ func (h *Handlers) HandleProductDetail(w http.ResponseWriter, r *http.Request) {
 	views.ProductDetailFragment(product, variations, images, texts).Render(ctx, w)
 }
 
+// sensitiveKeyNames defines leaf key names that contain sensitive values.
+var sensitiveKeyNames = map[string]bool{
+	"api_key":  true,
+	"password": true,
+	"username": true,
+}
+
+// isSensitiveKey checks if a dotted config key has a sensitive leaf name.
+func isSensitiveKey(key string) bool {
+	parts := strings.Split(key, ".")
+	leaf := parts[len(parts)-1]
+	return sensitiveKeyNames[leaf]
+}
+
+// maskValue shows first 4 characters followed by **** for sensitive values.
+func maskValue(val string) string {
+	if len(val) == 0 {
+		return ""
+	}
+	if len(val) > 4 {
+		return val[:4] + "****"
+	}
+	return "****"
+}
+
+// flattenSettings recursively flattens a nested map into dotted key-value pairs.
+func flattenSettings(prefix string, m map[string]any, out *[]views.ConfigField) {
+	for k, v := range m {
+		fullKey := k
+		if prefix != "" {
+			fullKey = prefix + "." + k
+		}
+		switch val := v.(type) {
+		case map[string]any:
+			flattenSettings(fullKey, val, out)
+		default:
+			strVal := fmt.Sprintf("%v", v)
+			field := views.ConfigField{
+				Key:      fullKey,
+				RawValue: strVal,
+				Value:    strVal,
+				Section:  strings.Split(fullKey, ".")[0],
+			}
+			if isSensitiveKey(fullKey) {
+				field.Sensitive = true
+				field.Value = maskValue(strVal)
+				field.RawValue = "" // do not expose raw value for sensitive fields
+			}
+			_ = val // suppress unused warning for type switch
+			*out = append(*out, field)
+		}
+	}
+}
+
 // HandleConfig renders the configuration page.
 func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
-	views.ConfigPage().Render(r.Context(), w)
+	savedKey := r.URL.Query().Get("saved")
+
+	settings := viper.AllSettings()
+	var fields []views.ConfigField
+	flattenSettings("", settings, &fields)
+
+	// Group fields by section.
+	sectionMap := make(map[string][]views.ConfigField)
+	for _, f := range fields {
+		sectionMap[f.Section] = append(sectionMap[f.Section], f)
+	}
+
+	// Order sections deterministically.
+	sectionOrder := []string{"server", "database", "log", "pipeline", "ai", "api"}
+	var sections []views.ConfigSection
+	seen := make(map[string]bool)
+	for _, name := range sectionOrder {
+		if fs, ok := sectionMap[name]; ok {
+			sort.Slice(fs, func(i, j int) bool { return fs[i].Key < fs[j].Key })
+			sections = append(sections, views.ConfigSection{Name: name, Fields: fs})
+			seen[name] = true
+		}
+	}
+	// Add any extra sections not in the predefined order.
+	var extraNames []string
+	for name := range sectionMap {
+		if !seen[name] {
+			extraNames = append(extraNames, name)
+		}
+	}
+	sort.Strings(extraNames)
+	for _, name := range extraNames {
+		fs := sectionMap[name]
+		sort.Slice(fs, func(i, j int) bool { return fs[i].Key < fs[j].Key })
+		sections = append(sections, views.ConfigSection{Name: name, Fields: fs})
+	}
+
+	views.ConfigPage(sections, savedKey).Render(r.Context(), w)
+}
+
+// HandleConfigUpdate saves a config value via viper and returns the updated field fragment.
+func (h *Handlers) HandleConfigUpdate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form data", http.StatusBadRequest)
+		return
+	}
+
+	key := r.FormValue("key")
+	value := r.FormValue("value")
+
+	if key == "" {
+		http.Error(w, "key required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate that the key exists in viper settings.
+	if !viper.IsSet(key) {
+		http.Error(w, "unknown config key", http.StatusBadRequest)
+		return
+	}
+
+	viper.Set(key, value)
+
+	// Persist to config file.
+	if err := viper.WriteConfig(); err != nil {
+		// If no config file exists yet, try SafeWriteConfig.
+		if err2 := viper.SafeWriteConfig(); err2 != nil {
+			slog.Warn("could not write config file", "error", err, "safe_error", err2)
+		}
+	}
+
+	// Log the change (mask value if sensitive).
+	logValue := value
+	if isSensitiveKey(key) {
+		logValue = maskValue(value)
+	}
+	slog.Info("config updated", "key", key, "value", logValue)
+
+	// Build updated field for fragment response.
+	field := views.ConfigField{
+		Key:      key,
+		RawValue: value,
+		Value:    value,
+		Section:  strings.Split(key, ".")[0],
+	}
+	if isSensitiveKey(key) {
+		field.Sensitive = true
+		field.Value = maskValue(value)
+		field.RawValue = ""
+	}
+
+	views.ConfigFieldFragment(field, true).Render(r.Context(), w)
+}
+
+// HandleConfigEdit renders an edit input for a sensitive config field.
+func (h *Handlers) HandleConfigEdit(w http.ResponseWriter, r *http.Request) {
+	key := chi.URLParam(r, "*")
+	if key == "" {
+		http.Error(w, "key required", http.StatusBadRequest)
+		return
+	}
+
+	field := views.ConfigField{
+		Key:       key,
+		Sensitive: true,
+		Section:   strings.Split(key, ".")[0],
+	}
+
+	views.ConfigFieldEditFragment(field).Render(r.Context(), w)
+}
+
+// HandleConfigCancel renders the read-only view for a sensitive config field (cancel edit).
+func (h *Handlers) HandleConfigCancel(w http.ResponseWriter, r *http.Request) {
+	key := chi.URLParam(r, "*")
+	if key == "" {
+		http.Error(w, "key required", http.StatusBadRequest)
+		return
+	}
+
+	strVal := fmt.Sprintf("%v", viper.Get(key))
+	field := views.ConfigField{
+		Key:     key,
+		Value:   maskValue(strVal),
+		Section: strings.Split(key, ".")[0],
+	}
+	if isSensitiveKey(key) {
+		field.Sensitive = true
+		field.RawValue = ""
+	}
+
+	views.ConfigFieldFragment(field, false).Render(r.Context(), w)
 }
 
 // HandleMappings renders the mapping overview page with filtering.
