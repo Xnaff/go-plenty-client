@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/janemig/plentyone/internal/storage/queries"
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -565,6 +568,97 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// Sensitive keys for config masking (matched by leaf key name, any nesting level).
+var sensitiveKeys = map[string]bool{
+	"api_key":  true,
+	"password": true,
+	"username": true,
+}
+
+func maskSettings(settings map[string]any) map[string]any {
+	masked := make(map[string]any, len(settings))
+	for k, v := range settings {
+		switch val := v.(type) {
+		case map[string]any:
+			masked[k] = maskSettings(val)
+		case string:
+			if sensitiveKeys[k] && len(val) > 0 {
+				if len(val) > 4 {
+					masked[k] = val[:4] + "****"
+				} else {
+					masked[k] = "****"
+				}
+			} else {
+				masked[k] = v
+			}
+		default:
+			masked[k] = v
+		}
+	}
+	return masked
+}
+
+var configCmd = &cobra.Command{
+	Use:   "config",
+	Short: "View current configuration",
+	RunE:  runConfigView,
+}
+
+func runConfigView(cmd *cobra.Command, args []string) error {
+	settings := viper.AllSettings()
+	masked := maskSettings(settings)
+
+	enc := yaml.NewEncoder(os.Stdout)
+	enc.SetIndent(2)
+	if err := enc.Encode(masked); err != nil {
+		return fmt.Errorf("encoding config: %w", err)
+	}
+	enc.Close()
+
+	if f := viper.ConfigFileUsed(); f != "" {
+		fmt.Fprintf(os.Stderr, "\nConfig file: %s\n", f)
+	} else {
+		fmt.Fprintf(os.Stderr, "\nNo config file found (using defaults + environment)\n")
+	}
+	return nil
+}
+
+var configSetCmd = &cobra.Command{
+	Use:   "set [key] [value]",
+	Short: "Set a configuration value",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runConfigSet,
+}
+
+func runConfigSet(cmd *cobra.Command, args []string) error {
+	key, value := args[0], args[1]
+
+	// Warn about sensitive keys.
+	leafKey := key
+	if idx := strings.LastIndex(key, "."); idx >= 0 {
+		leafKey = key[idx+1:]
+	}
+	if sensitiveKeys[leafKey] {
+		envKey := strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+		fmt.Fprintf(os.Stderr, "Warning: Prefer using environment variable PLENTYONE_%s instead of storing sensitive values in config file\n", envKey)
+	}
+
+	viper.Set(key, value)
+
+	cfgPath := viper.ConfigFileUsed()
+	if cfgPath == "" {
+		cfgPath = "./config.yaml"
+		fmt.Fprintf(os.Stderr, "Creating new config file: %s\n", cfgPath)
+	}
+
+	if err := viper.WriteConfigAs(cfgPath); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	fmt.Printf("%s = %s\n", key, value)
+	return nil
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
 	rootCmd.AddCommand(versionCmd)
@@ -572,9 +666,12 @@ func init() {
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(pushCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(configCmd)
 
 	migrateCmd.AddCommand(migrateUpCmd)
 	migrateCmd.AddCommand(migrateDownCmd)
+
+	configCmd.AddCommand(configSetCmd)
 
 	migrateCmd.PersistentFlags().Bool("dry-run", false, "print DSN and exit without running migrations")
 
