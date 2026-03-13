@@ -37,3 +37,26 @@ func (s *ItemService) List(ctx context.Context, params PaginationParams) (*Pagin
 	path := fmt.Sprintf("/rest/items?page=%d&itemsPerPage=%d", params.Page, params.ItemsPerPage)
 	return doJSON[PaginatedResponse[Item]](ctx, s.client, http.MethodGet, path, nil)
 }
+
+// Delete removes an item by ID.
+// DELETE /rest/items/{id}
+func (s *ItemService) Delete(ctx context.Context, id int64) error {
+	path := fmt.Sprintf("/rest/items/%d", id)
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodDelete, path, nil)
+		return nil
+	}
+
+	resp, err := s.client.doRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return parseErrorResponse(resp)
+	}
+
+	return nil
+}

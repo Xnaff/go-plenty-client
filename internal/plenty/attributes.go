@@ -50,3 +50,26 @@ func (s *AttributeService) ListValues(ctx context.Context, attributeID int64, pa
 	path := fmt.Sprintf("/rest/attributes/%d/values?page=%d&itemsPerPage=%d", attributeID, params.Page, params.ItemsPerPage)
 	return doJSON[PaginatedResponse[AttributeValue]](ctx, s.client, http.MethodGet, path, nil)
 }
+
+// Delete removes an attribute by ID.
+// DELETE /rest/attributes/{id}
+func (s *AttributeService) Delete(ctx context.Context, id int64) error {
+	path := fmt.Sprintf("/rest/attributes/%d", id)
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodDelete, path, nil)
+		return nil
+	}
+
+	resp, err := s.client.doRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return parseErrorResponse(resp)
+	}
+
+	return nil
+}

@@ -49,3 +49,26 @@ func (s *PropertyService) CreateRelation(ctx context.Context, req *PropertyRelat
 
 	return doJSON[PropertyRelation](ctx, s.client, http.MethodPost, path, req)
 }
+
+// Delete removes a property by ID.
+// DELETE /rest/properties/{id}
+func (s *PropertyService) Delete(ctx context.Context, id int64) error {
+	path := fmt.Sprintf("/rest/properties/%d", id)
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodDelete, path, nil)
+		return nil
+	}
+
+	resp, err := s.client.doRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return parseErrorResponse(resp)
+	}
+
+	return nil
+}

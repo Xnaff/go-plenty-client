@@ -43,3 +43,26 @@ func (s *VariationService) List(ctx context.Context, itemID int64, params Pagina
 	path := fmt.Sprintf("/rest/items/%d/variations?page=%d&itemsPerPage=%d", itemID, params.Page, params.ItemsPerPage)
 	return doJSON[PaginatedResponse[Variation]](ctx, s.client, http.MethodGet, path, nil)
 }
+
+// Delete removes a variation from the given item.
+// DELETE /rest/items/{itemId}/variations/{variationId}
+func (s *VariationService) Delete(ctx context.Context, itemID, variationID int64) error {
+	path := fmt.Sprintf("/rest/items/%d/variations/%d", itemID, variationID)
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodDelete, path, nil)
+		return nil
+	}
+
+	resp, err := s.client.doRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return parseErrorResponse(resp)
+	}
+
+	return nil
+}

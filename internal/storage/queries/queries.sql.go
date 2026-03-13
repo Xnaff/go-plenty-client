@@ -12,6 +12,19 @@ import (
 	"time"
 )
 
+const countFailedByRun = `-- name: CountFailedByRun :one
+SELECT COUNT(*) as count
+FROM entity_mappings
+WHERE run_id = ? AND status = 'failed'
+`
+
+func (q *Queries) CountFailedByRun(ctx context.Context, runID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countFailedByRun, runID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countMappingsByStatus = `-- name: CountMappingsByStatus :many
 SELECT entity_type, status, COUNT(*) as count
 FROM entity_mappings
@@ -430,6 +443,36 @@ func (q *Queries) GetEntityMappingByPlentyID(ctx context.Context, arg GetEntityM
 	return i, err
 }
 
+const getMappingByLocalIDAndType = `-- name: GetMappingByLocalIDAndType :one
+SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
+FROM entity_mappings
+WHERE run_id = ? AND local_id = ? AND entity_type = ?
+`
+
+type GetMappingByLocalIDAndTypeParams struct {
+	RunID      int64  `json:"run_id"`
+	LocalID    int64  `json:"local_id"`
+	EntityType string `json:"entity_type"`
+}
+
+func (q *Queries) GetMappingByLocalIDAndType(ctx context.Context, arg GetMappingByLocalIDAndTypeParams) (EntityMapping, error) {
+	row := q.db.QueryRowContext(ctx, getMappingByLocalIDAndType, arg.RunID, arg.LocalID, arg.EntityType)
+	var i EntityMapping
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.LocalID,
+		&i.PlentyID,
+		&i.EntityType,
+		&i.Stage,
+		&i.Status,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getJob = `-- name: GetJob :one
 SELECT id, name, job_type, config, status, created_at, updated_at
 FROM jobs
@@ -459,6 +502,31 @@ WHERE id = ?
 
 func (q *Queries) GetPipelineRun(ctx context.Context, id int64) (PipelineRun, error) {
 	row := q.db.QueryRowContext(ctx, getPipelineRun, id)
+	var i PipelineRun
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.Status,
+		&i.CurrentStage,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getPipelineRunByJobLatest = `-- name: GetPipelineRunByJobLatest :one
+SELECT id, job_id, status, current_stage, started_at, completed_at, error_message, created_at, updated_at
+FROM pipeline_runs
+WHERE job_id = ?
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+func (q *Queries) GetPipelineRunByJobLatest(ctx context.Context, jobID int64) (PipelineRun, error) {
+	row := q.db.QueryRowContext(ctx, getPipelineRunByJobLatest, jobID)
 	var i PipelineRun
 	err := row.Scan(
 		&i.ID,
@@ -591,6 +659,124 @@ func (q *Queries) ListCategoriesByJob(ctx context.Context, jobID int64) ([]Categ
 	return items, nil
 }
 
+const listAttributeValuesByAttribute = `-- name: ListAttributeValuesByAttribute :many
+SELECT id, attribute_id, name, sort_order
+FROM attribute_values
+WHERE attribute_id = ?
+ORDER BY sort_order
+`
+
+func (q *Queries) ListAttributeValuesByAttribute(ctx context.Context, attributeID int64) ([]AttributeValue, error) {
+	rows, err := q.db.QueryContext(ctx, listAttributeValuesByAttribute, attributeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AttributeValue{}
+	for rows.Next() {
+		var i AttributeValue
+		if err := rows.Scan(
+			&i.ID,
+			&i.AttributeID,
+			&i.Name,
+			&i.SortOrder,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAttributesByJob = `-- name: ListAttributesByJob :many
+SELECT id, job_id, name, attr_type, status, created_at
+FROM attributes
+WHERE job_id = ?
+ORDER BY created_at
+`
+
+func (q *Queries) ListAttributesByJob(ctx context.Context, jobID int64) ([]Attribute, error) {
+	rows, err := q.db.QueryContext(ctx, listAttributesByJob, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Attribute{}
+	for rows.Next() {
+		var i Attribute
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Name,
+			&i.AttrType,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCreatedMappingsByRunAndType = `-- name: ListCreatedMappingsByRunAndType :many
+SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
+FROM entity_mappings
+WHERE run_id = ? AND entity_type = ? AND status = 'created'
+ORDER BY created_at
+`
+
+type ListCreatedMappingsByRunAndTypeParams struct {
+	RunID      int64  `json:"run_id"`
+	EntityType string `json:"entity_type"`
+}
+
+func (q *Queries) ListCreatedMappingsByRunAndType(ctx context.Context, arg ListCreatedMappingsByRunAndTypeParams) ([]EntityMapping, error) {
+	rows, err := q.db.QueryContext(ctx, listCreatedMappingsByRunAndType, arg.RunID, arg.EntityType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EntityMapping{}
+	for rows.Next() {
+		var i EntityMapping
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.LocalID,
+			&i.PlentyID,
+			&i.EntityType,
+			&i.Stage,
+			&i.Status,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEntityMappingsByRun = `-- name: ListEntityMappingsByRun :many
 SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
 FROM entity_mappings
@@ -646,6 +832,47 @@ ORDER BY created_at
 
 func (q *Queries) ListFailedMappingsByRun(ctx context.Context, runID int64) ([]EntityMapping, error) {
 	rows, err := q.db.QueryContext(ctx, listFailedMappingsByRun, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EntityMapping{}
+	for rows.Next() {
+		var i EntityMapping
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.LocalID,
+			&i.PlentyID,
+			&i.EntityType,
+			&i.Stage,
+			&i.Status,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrphanedMappingsByRun = `-- name: ListOrphanedMappingsByRun :many
+SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
+FROM entity_mappings
+WHERE run_id = ? AND status = 'orphaned'
+ORDER BY created_at
+`
+
+func (q *Queries) ListOrphanedMappingsByRun(ctx context.Context, runID int64) ([]EntityMapping, error) {
+	rows, err := q.db.QueryContext(ctx, listOrphanedMappingsByRun, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -797,6 +1024,87 @@ func (q *Queries) ListProductsByJob(ctx context.Context, jobID int64) ([]Product
 	return items, nil
 }
 
+const listProductsByJobAndStatus = `-- name: ListProductsByJobAndStatus :many
+SELECT id, job_id, name, product_type, base_data, status, created_at, updated_at
+FROM products
+WHERE job_id = ? AND status = ?
+ORDER BY created_at
+`
+
+type ListProductsByJobAndStatusParams struct {
+	JobID  int64  `json:"job_id"`
+	Status string `json:"status"`
+}
+
+func (q *Queries) ListProductsByJobAndStatus(ctx context.Context, arg ListProductsByJobAndStatusParams) ([]Product, error) {
+	rows, err := q.db.QueryContext(ctx, listProductsByJobAndStatus, arg.JobID, arg.Status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Product{}
+	for rows.Next() {
+		var i Product
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Name,
+			&i.ProductType,
+			&i.BaseData,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPropertiesByJob = `-- name: ListPropertiesByJob :many
+SELECT id, job_id, name, property_type, status, created_at
+FROM properties
+WHERE job_id = ?
+ORDER BY created_at
+`
+
+func (q *Queries) ListPropertiesByJob(ctx context.Context, jobID int64) ([]Property, error) {
+	rows, err := q.db.QueryContext(ctx, listPropertiesByJob, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Property{}
+	for rows.Next() {
+		var i Property
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Name,
+			&i.PropertyType,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStageStatesByRun = `-- name: ListStageStatesByRun :many
 SELECT id, run_id, stage_name, status, processed, total, error_detail, started_at, completed_at
 FROM stage_states
@@ -918,6 +1226,17 @@ func (q *Queries) ListVariationsByProduct(ctx context.Context, productID int64) 
 	return items, nil
 }
 
+const resetFailedMappingsForRetry = `-- name: ResetFailedMappingsForRetry :exec
+UPDATE entity_mappings
+SET status = 'pending', error_message = NULL, updated_at = NOW()
+WHERE run_id = ? AND status = 'failed'
+`
+
+func (q *Queries) ResetFailedMappingsForRetry(ctx context.Context, runID int64) error {
+	_, err := q.db.ExecContext(ctx, resetFailedMappingsForRetry, runID)
+	return err
+}
+
 const updateJobStatus = `-- name: UpdateJobStatus :exec
 UPDATE jobs SET status = ? WHERE id = ?
 `
@@ -978,6 +1297,27 @@ func (q *Queries) UpdatePipelineRunStatus(ctx context.Context, arg UpdatePipelin
 	return err
 }
 
+const updatePipelineRunCompleted = `-- name: UpdatePipelineRunCompleted :exec
+UPDATE pipeline_runs
+SET status = ?, current_stage = ?, completed_at = NOW(), updated_at = NOW()
+WHERE id = ?
+`
+
+type UpdatePipelineRunCompletedParams struct {
+	Status       string         `json:"status"`
+	CurrentStage sql.NullString `json:"current_stage"`
+	ID           int64          `json:"id"`
+}
+
+func (q *Queries) UpdatePipelineRunCompleted(ctx context.Context, arg UpdatePipelineRunCompletedParams) error {
+	_, err := q.db.ExecContext(ctx, updatePipelineRunCompleted,
+		arg.Status,
+		arg.CurrentStage,
+		arg.ID,
+	)
+	return err
+}
+
 const updateStageState = `-- name: UpdateStageState :exec
 UPDATE stage_states
 SET status = ?, processed = ?, total = ?
@@ -996,6 +1336,33 @@ func (q *Queries) UpdateStageState(ctx context.Context, arg UpdateStageStatePara
 		arg.Status,
 		arg.Processed,
 		arg.Total,
+		arg.ID,
+	)
+	return err
+}
+
+const updateStageStateTimestamps = `-- name: UpdateStageStateTimestamps :exec
+UPDATE stage_states
+SET status = ?, processed = ?, total = ?, started_at = ?, completed_at = ?
+WHERE id = ?
+`
+
+type UpdateStageStateTimestampsParams struct {
+	Status      string       `json:"status"`
+	Processed   int32        `json:"processed"`
+	Total       int32        `json:"total"`
+	StartedAt   sql.NullTime `json:"started_at"`
+	CompletedAt sql.NullTime `json:"completed_at"`
+	ID          int64        `json:"id"`
+}
+
+func (q *Queries) UpdateStageStateTimestamps(ctx context.Context, arg UpdateStageStateTimestampsParams) error {
+	_, err := q.db.ExecContext(ctx, updateStageStateTimestamps,
+		arg.Status,
+		arg.Processed,
+		arg.Total,
+		arg.StartedAt,
+		arg.CompletedAt,
 		arg.ID,
 	)
 	return err

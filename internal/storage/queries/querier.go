@@ -9,6 +9,7 @@ import (
 )
 
 type Querier interface {
+	CountFailedByRun(ctx context.Context, runID int64) (int64, error)
 	CountMappingsByStatus(ctx context.Context, runID int64) ([]CountMappingsByStatusRow, error)
 	// OAuth Tokens
 	DeleteOAuthToken(ctx context.Context, shopUrl string) error
@@ -35,23 +36,34 @@ type Querier interface {
 	GetEntityMapping(ctx context.Context, arg GetEntityMappingParams) (EntityMapping, error)
 	GetEntityMappingByPlentyID(ctx context.Context, arg GetEntityMappingByPlentyIDParams) (EntityMapping, error)
 	GetJob(ctx context.Context, id int64) (Job, error)
+	GetMappingByLocalIDAndType(ctx context.Context, arg GetMappingByLocalIDAndTypeParams) (EntityMapping, error)
 	GetPipelineRun(ctx context.Context, id int64) (PipelineRun, error)
+	GetPipelineRunByJobLatest(ctx context.Context, jobID int64) (PipelineRun, error)
 	GetProduct(ctx context.Context, id int64) (Product, error)
 	GetStageState(ctx context.Context, arg GetStageStateParams) (StageState, error)
 	GetTextByProductFieldLang(ctx context.Context, arg GetTextByProductFieldLangParams) (Text, error)
+	ListAttributeValuesByAttribute(ctx context.Context, attributeID int64) ([]AttributeValue, error)
+	ListAttributesByJob(ctx context.Context, jobID int64) ([]Attribute, error)
 	ListCategoriesByJob(ctx context.Context, jobID int64) ([]Category, error)
+	ListCreatedMappingsByRunAndType(ctx context.Context, arg ListCreatedMappingsByRunAndTypeParams) ([]EntityMapping, error)
 	ListEntityMappingsByRun(ctx context.Context, arg ListEntityMappingsByRunParams) ([]EntityMapping, error)
 	ListFailedMappingsByRun(ctx context.Context, runID int64) ([]EntityMapping, error)
 	ListImagesByProduct(ctx context.Context, productID int64) ([]Image, error)
+	ListOrphanedMappingsByRun(ctx context.Context, runID int64) ([]EntityMapping, error)
 	ListPipelineRunsByJob(ctx context.Context, jobID int64) ([]PipelineRun, error)
 	ListProductsByJob(ctx context.Context, jobID int64) ([]Product, error)
+	ListProductsByJobAndStatus(ctx context.Context, arg ListProductsByJobAndStatusParams) ([]Product, error)
+	ListPropertiesByJob(ctx context.Context, jobID int64) ([]Property, error)
 	ListStageStatesByRun(ctx context.Context, runID int64) ([]StageState, error)
 	ListTextsByProduct(ctx context.Context, productID int64) ([]Text, error)
 	ListVariationsByProduct(ctx context.Context, productID int64) ([]Variation, error)
+	ResetFailedMappingsForRetry(ctx context.Context, runID int64) error
 	UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams) error
 	UpdateMappingStatus(ctx context.Context, arg UpdateMappingStatusParams) error
+	UpdatePipelineRunCompleted(ctx context.Context, arg UpdatePipelineRunCompletedParams) error
 	UpdatePipelineRunStatus(ctx context.Context, arg UpdatePipelineRunStatusParams) error
 	UpdateStageState(ctx context.Context, arg UpdateStageStateParams) error
+	UpdateStageStateTimestamps(ctx context.Context, arg UpdateStageStateTimestampsParams) error
 }
 
 var _ Querier = (*Queries)(nil)

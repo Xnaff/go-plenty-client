@@ -182,6 +182,74 @@ SELECT id, shop_url, access_token, refresh_token, token_type, expires_at, create
 FROM oauth_tokens
 WHERE shop_url = ?;
 
+-- name: GetMappingByLocalIDAndType :one
+SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
+FROM entity_mappings
+WHERE run_id = ? AND local_id = ? AND entity_type = ?;
+
+-- name: ListCreatedMappingsByRunAndType :many
+SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
+FROM entity_mappings
+WHERE run_id = ? AND entity_type = ? AND status = 'created'
+ORDER BY created_at;
+
+-- name: ListOrphanedMappingsByRun :many
+SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
+FROM entity_mappings
+WHERE run_id = ? AND status = 'orphaned'
+ORDER BY created_at;
+
+-- name: UpdateStageStateTimestamps :exec
+UPDATE stage_states
+SET status = ?, processed = ?, total = ?, started_at = ?, completed_at = ?
+WHERE id = ?;
+
+-- name: UpdatePipelineRunCompleted :exec
+UPDATE pipeline_runs
+SET status = ?, current_stage = ?, completed_at = NOW(), updated_at = NOW()
+WHERE id = ?;
+
+-- name: GetPipelineRunByJobLatest :one
+SELECT id, job_id, status, current_stage, started_at, completed_at, error_message, created_at, updated_at
+FROM pipeline_runs
+WHERE job_id = ?
+ORDER BY created_at DESC
+LIMIT 1;
+
+-- name: ListProductsByJobAndStatus :many
+SELECT id, job_id, name, product_type, base_data, status, created_at, updated_at
+FROM products
+WHERE job_id = ? AND status = ?
+ORDER BY created_at;
+
+-- name: ListAttributesByJob :many
+SELECT id, job_id, name, attr_type, status, created_at
+FROM attributes
+WHERE job_id = ?
+ORDER BY created_at;
+
+-- name: ListPropertiesByJob :many
+SELECT id, job_id, name, property_type, status, created_at
+FROM properties
+WHERE job_id = ?
+ORDER BY created_at;
+
+-- name: ListAttributeValuesByAttribute :many
+SELECT id, attribute_id, name, sort_order
+FROM attribute_values
+WHERE attribute_id = ?
+ORDER BY sort_order;
+
+-- name: CountFailedByRun :one
+SELECT COUNT(*) as count
+FROM entity_mappings
+WHERE run_id = ? AND status = 'failed';
+
+-- name: ResetFailedMappingsForRetry :exec
+UPDATE entity_mappings
+SET status = 'pending', error_message = NULL, updated_at = NOW()
+WHERE run_id = ? AND status = 'failed';
+
 -- name: DeleteOAuthToken :exec
 DELETE FROM oauth_tokens
 WHERE shop_url = ?;
