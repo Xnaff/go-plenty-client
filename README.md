@@ -70,18 +70,54 @@ sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/b
 go install github.com/go-task/task/v3/cmd/task@latest
 ```
 
+### Build Tools (required for `task build`)
+
+These two tools are needed to compile templates and CSS when building with `task build`:
+
+**templ** — generates Go code from `.templ` HTML templates:
+
+```bash
+go install github.com/a-h/templ/cmd/templ@latest
+```
+
+Make sure `~/go/bin` is in your PATH:
+
+```bash
+# Add to your ~/.zshrc or ~/.bashrc
+export PATH="$HOME/go/bin:$PATH"
+```
+
+**Tailwind CSS standalone CLI** — compiles Tailwind CSS without needing Node.js. Download the binary for your platform into the `tools/` directory:
+
+```bash
+mkdir -p tools
+
+# macOS Apple Silicon (M1/M2/M3/M4)
+curl -sL https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-macos-arm64 -o tools/tailwindcss
+
+# macOS Intel
+curl -sL https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-macos-x64 -o tools/tailwindcss
+
+# Linux x64
+curl -sL https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 -o tools/tailwindcss
+
+# Linux ARM64
+curl -sL https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-arm64 -o tools/tailwindcss
+
+chmod +x tools/tailwindcss
+```
+
+> **Skipping `task build`?** If you just want to compile Go without templates/CSS, run `go build -o ./bin/plentyone ./cmd/plentyone` directly. This works because the generated templ code and compiled CSS are committed to the repository.
+
 ### Optional Tools
 
-These are only needed if you want to modify the codebase:
+These are only needed if you want to modify database queries or run development tooling:
 
 | Tool | What it does | Install |
 |------|-------------|---------|
 | **sqlc** | Generates type-safe Go code from SQL queries | `go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest` |
-| **templ** | Generates Go code from HTML templates | `go install github.com/a-h/templ/cmd/templ@latest` |
 | **air** | Hot-reload for Go during development | `go install github.com/air-verse/air@latest` |
 | **golangci-lint** | Code quality linter | `brew install golangci-lint` or see [golangci-lint.run](https://golangci-lint.run/welcome/install/) |
-
-You do **not** need these to build and run the project — the generated code is committed to the repository.
 
 ## Installation
 
@@ -93,13 +129,17 @@ cd plentyone
 # Download Go dependencies
 go mod download
 
+# Install build tools (templ + tailwindcss) — see Prerequisites above
+go install github.com/a-h/templ/cmd/templ@latest
+mkdir -p tools && curl -sL https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-macos-arm64 -o tools/tailwindcss && chmod +x tools/tailwindcss
+
 # Build the binary
 task build
 ```
 
 This produces a single binary at `./bin/plentyone` that contains everything (including the web dashboard assets). You can copy this binary anywhere and run it.
 
-If you don't have Task installed, you can build manually:
+If you don't have Task installed, or want to skip the template/CSS build step, you can build manually:
 
 ```bash
 go build -o ./bin/plentyone ./cmd/plentyone
