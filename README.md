@@ -83,8 +83,11 @@ go install github.com/a-h/templ/cmd/templ@latest
 Make sure `~/go/bin` is in your PATH:
 
 ```bash
-# Add to your ~/.zshrc or ~/.bashrc
+# Bash (~/.bashrc) or Zsh (~/.zshrc)
 export PATH="$HOME/go/bin:$PATH"
+
+# Fish (~/.config/fish/config.fish)
+fish_add_path ~/go/bin
 ```
 
 **Tailwind CSS standalone CLI** — compiles Tailwind CSS without needing Node.js. Download the binary for your platform into the `tools/` directory:
