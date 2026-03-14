@@ -87,7 +87,7 @@ You do **not** need these to build and run the project — the generated code is
 
 ```bash
 # Clone the repository
-git clone https://github.com/janemig/plentyone.git
+git clone https://github.com/janemig/go-plenty-client.git plentyone
 cd plentyone
 
 # Download Go dependencies
