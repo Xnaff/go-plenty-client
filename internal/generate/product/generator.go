@@ -44,8 +44,27 @@ type GeneratedProduct struct {
 	Texts         map[string]*generate.ProductTexts    // lang -> product texts
 	PropertyTexts map[string]*generate.PropertyValues   // lang -> text-type property values
 	Properties    *generate.PropertyValues              // non-text property values (language-independent)
-	Price         float64                               // AI-generated price
+	PropertyDefs  []generate.BatchPropertyDefinition    // Shared property definitions from batch
+	PropertyVals  []generate.BatchProductProperty       // This product's selection property values
+	CategoryNames        map[string]string                     // Translated category names (lang -> name) from batch
+	CategoryDescriptions map[string]string                     // Translated category descriptions (lang -> description) from batch
+	Subcategories        []generate.BatchSubcategory           // Subcategory definitions from batch
+	Subcategory          string                                // This product's subcategory (English name)
+	AttributeDefs        []generate.BatchAttributeDefinition           // Shared attribute definitions from batch
+	AttributeAssignments []generate.BatchProductAttributeAssignment    // This product's attribute assignments for variations
+	Price         float64                               // AI-generated selling price
 	Currency      string                                // Price currency (e.g., "EUR")
+	RRP             float64                             // Recommended retail price
+	B2BPrice        float64                             // B2B wholesale selling price
+	B2BRRP          float64                             // B2B recommended retail price
+	Model           string                              // Product model identifier
+	Weight          float64                             // Product weight
+	WeightUnit      string                              // Weight unit: "kg" or "g"
+	SalesUnit       string                              // How the product is sold: "piece", "kg", etc.
+	LengthCM        int                                 // Product length in cm
+	WidthCM         int                                 // Product width in cm
+	HeightCM        int                                 // Product height in cm
+	GraduatedPrices []generate.GraduatedPrice           // Optional quantity-based price tiers (with RRP per tier)
 	Warnings      []validate.ValidationError
 }
 
@@ -101,11 +120,31 @@ func (g *Generator) Generate(ctx context.Context, req GenerationRequest) (*Gener
 	if result.Currency == "" {
 		result.Currency = "EUR"
 	}
+	result.RRP = priceResult.RRP
+	result.B2BPrice = priceResult.B2BPrice
+	result.B2BRRP = priceResult.B2BRRP
+	result.Model = priceResult.Model
+	result.Weight = priceResult.Weight
+	result.WeightUnit = priceResult.WeightUnit
+	result.SalesUnit = priceResult.SalesUnit
+	result.LengthCM = priceResult.LengthCM
+	result.WidthCM = priceResult.WidthCM
+	result.HeightCM = priceResult.HeightCM
+	result.GraduatedPrices = priceResult.GraduatedPrices
 
 	g.logger.Info("generated price",
 		"provider", g.provider.Name(),
 		"price", result.Price,
+		"rrp", result.RRP,
+		"b2b_price", result.B2BPrice,
+		"b2b_rrp", result.B2BRRP,
+		"model", result.Model,
 		"currency", result.Currency,
+		"weight", result.Weight,
+		"weight_unit", result.WeightUnit,
+		"sales_unit", result.SalesUnit,
+		"dimensions_cm", fmt.Sprintf("%dx%dx%d", result.LengthCM, result.WidthCM, result.HeightCM),
+		"graduated_tiers", len(result.GraduatedPrices),
 	)
 
 	// 3. Handle properties if provided.
@@ -195,6 +234,154 @@ func (g *Generator) Generate(ctx context.Context, req GenerationRequest) (*Gener
 	}
 
 	return result, nil
+}
+
+// GenerateBatch generates multiple products in a single operation.
+// If the underlying provider implements BatchGenerator, it uses a single
+// API call for all products. Otherwise, it falls back to calling Generate
+// per product sequentially.
+func (g *Generator) GenerateBatch(ctx context.Context, req GenerationRequest, count int) ([]*GeneratedProduct, error) {
+	batcher, ok := g.provider.(generate.BatchGenerator)
+	if !ok {
+		// Fallback: generate one at a time.
+		return g.generateBatchSequential(ctx, req, count)
+	}
+
+	batchReq := generate.BatchRequest{
+		ProductType: req.ProductType,
+		Category:    req.Category,
+		Niche:       req.Niche,
+		Count:       count,
+		Languages:   g.languages,
+		Currency:    "EUR",
+	}
+
+	result, err := batcher.GenerateBatch(ctx, batchReq)
+	if err != nil {
+		return nil, fmt.Errorf("batch generation: %w", err)
+	}
+
+	if len(result.Products) == 0 {
+		return nil, fmt.Errorf("batch generation returned zero products")
+	}
+
+	if len(result.Products) < count {
+		g.logger.Warn("batch generation returned fewer products than requested",
+			"requested", count,
+			"received", len(result.Products),
+		)
+	}
+
+	// Convert and validate each product.
+	products := make([]*GeneratedProduct, 0, len(result.Products))
+	for i, bp := range result.Products {
+		gp, err := g.convertBatchProduct(bp, result.Properties, result.CategoryName, result.CategoryDescriptions, result.Subcategories, result.Attributes)
+		if err != nil {
+			g.logger.Warn("skipping invalid product from batch",
+				"index", i,
+				"error", err,
+			)
+			continue
+		}
+		products = append(products, gp)
+	}
+
+	if len(products) == 0 {
+		return nil, fmt.Errorf("all products in batch failed validation")
+	}
+
+	g.logger.Info("batch generation complete",
+		"provider", g.provider.Name(),
+		"requested", count,
+		"valid", len(products),
+	)
+
+	return products, nil
+}
+
+// convertBatchProduct converts a BatchProduct to GeneratedProduct and validates
+// all text fields per language. Property definitions from the batch result are
+// attached to each product for downstream persistence.
+func (g *Generator) convertBatchProduct(bp generate.BatchProduct, propertyDefs []generate.BatchPropertyDefinition, categoryNames map[string]string, categoryDescriptions map[string]string, subcategories []generate.BatchSubcategory, attributeDefs []generate.BatchAttributeDefinition) (*GeneratedProduct, error) {
+	gp := &GeneratedProduct{
+		Texts:                make(map[string]*generate.ProductTexts, len(bp.Texts)),
+		PropertyDefs:         propertyDefs,
+		PropertyVals:         bp.Properties,
+		CategoryNames:        categoryNames,
+		CategoryDescriptions: categoryDescriptions,
+		Subcategories:        subcategories,
+		Subcategory:          bp.Subcategory,
+		AttributeDefs:        attributeDefs,
+		AttributeAssignments: bp.Attributes,
+		Price:                bp.Price,
+		Currency:        bp.Currency,
+		RRP:             bp.RRP,
+		B2BPrice:        bp.B2BPrice,
+		B2BRRP:          bp.B2BRRP,
+		Model:           bp.Model,
+		Weight:          bp.Weight,
+		WeightUnit:      bp.WeightUnit,
+		SalesUnit:       bp.SalesUnit,
+		LengthCM:        bp.LengthCM,
+		WidthCM:         bp.WidthCM,
+		HeightCM:        bp.HeightCM,
+		GraduatedPrices: bp.GraduatedPrices,
+	}
+
+	if gp.Currency == "" {
+		gp.Currency = "EUR"
+	}
+
+	for _, bt := range bp.Texts {
+		texts := bt.ToProductTexts()
+
+		validated, errs := g.validator.ValidateProductTexts(texts, bt.Language)
+		if validate.HasErrors(errs) {
+			return nil, fmt.Errorf("validation failed for language %s: %v", bt.Language, validate.ErrorsOnly(errs))
+		}
+		gp.Warnings = append(gp.Warnings, validate.WarningsOnly(errs)...)
+		gp.Texts[bt.Language] = validated
+	}
+
+	// Verify we got texts for all configured languages.
+	for _, lang := range g.languages {
+		if _, ok := gp.Texts[lang]; !ok {
+			return nil, fmt.Errorf("missing texts for language %s", lang)
+		}
+	}
+
+	g.logger.Info("generated product (batch)",
+		"provider", g.provider.Name(),
+		"price", gp.Price,
+		"model", gp.Model,
+		"dimensions_cm", fmt.Sprintf("%dx%dx%d", gp.LengthCM, gp.WidthCM, gp.HeightCM),
+		"languages", len(gp.Texts),
+		"properties", len(gp.PropertyVals),
+	)
+
+	return gp, nil
+}
+
+// generateBatchSequential falls back to per-product generation when the
+// provider does not implement BatchGenerator.
+func (g *Generator) generateBatchSequential(ctx context.Context, req GenerationRequest, count int) ([]*GeneratedProduct, error) {
+	products := make([]*GeneratedProduct, 0, count)
+
+	for i := 0; i < count; i++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		gp, err := g.Generate(ctx, req)
+		if err != nil {
+			return nil, fmt.Errorf("generating product %d/%d: %w", i+1, count, err)
+		}
+		products = append(products, gp)
+	}
+
+	return products, nil
 }
 
 // GenerateTexts generates and validates product texts for a single language.

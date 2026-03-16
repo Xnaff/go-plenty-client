@@ -19,11 +19,25 @@ type Attribute struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type AttributeNameTranslation struct {
+	ID          int64  `json:"id"`
+	AttributeID int64  `json:"attribute_id"`
+	Lang        string `json:"lang"`
+	Name        string `json:"name"`
+}
+
 type AttributeValue struct {
 	ID          int64  `json:"id"`
 	AttributeID int64  `json:"attribute_id"`
 	Name        string `json:"name"`
 	SortOrder   int32  `json:"sort_order"`
+}
+
+type AttributeValueTranslation struct {
+	ID               int64  `json:"id"`
+	AttributeValueID int64  `json:"attribute_value_id"`
+	Lang             string `json:"lang"`
+	Name             string `json:"name"`
 }
 
 type Category struct {
@@ -35,6 +49,22 @@ type Category struct {
 	SortOrder int32         `json:"sort_order"`
 	Status    string        `json:"status"`
 	CreatedAt time.Time     `json:"created_at"`
+}
+
+type CategoryRegistry struct {
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	ParentName string    `json:"parent_name"`
+	PlentyID   int64     `json:"plenty_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type CategoryTranslation struct {
+	ID          int64  `json:"id"`
+	CategoryID  int64  `json:"category_id"`
+	Lang        string `json:"lang"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type EnrichmentCache struct {
@@ -121,12 +151,43 @@ type ProductCategory struct {
 }
 
 type Property struct {
-	ID           int64     `json:"id"`
-	JobID        int64     `json:"job_id"`
-	Name         string    `json:"name"`
-	PropertyType string    `json:"property_type"`
-	Status       string    `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID              int64         `json:"id"`
+	JobID           int64         `json:"job_id"`
+	Name            string        `json:"name"`
+	PropertyType    string        `json:"property_type"`
+	Status          string        `json:"status"`
+	CreatedAt       time.Time     `json:"created_at"`
+	PropertyGroupID sql.NullInt64 `json:"property_group_id"`
+}
+
+type PropertyGroup struct {
+	ID        int64     `json:"id"`
+	JobID     int64     `json:"job_id"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type PropertyGroupTranslation struct {
+	ID              int64  `json:"id"`
+	PropertyGroupID int64  `json:"property_group_id"`
+	Lang            string `json:"lang"`
+	Name            string `json:"name"`
+}
+
+type PropertyNameTranslation struct {
+	ID         int64  `json:"id"`
+	PropertyID int64  `json:"property_id"`
+	Lang       string `json:"lang"`
+	Name       string `json:"name"`
+}
+
+type PropertyOptionTranslation struct {
+	ID         int64  `json:"id"`
+	PropertyID int64  `json:"property_id"`
+	OptionKey  string `json:"option_key"`
+	Lang       string `json:"lang"`
+	Name       string `json:"name"`
 }
 
 type PropertyText struct {
@@ -185,12 +246,28 @@ type Variation struct {
 	Barcode    string         `json:"barcode"`
 	Status     string         `json:"status"`
 	CreatedAt  time.Time      `json:"created_at"`
+	SalesUnit  string         `json:"sales_unit"`
+	Rrp        sql.NullString `json:"rrp"`
+	LengthMm   int32          `json:"length_mm"`
+	WidthMm    int32          `json:"width_mm"`
+	HeightMm   int32          `json:"height_mm"`
+	B2bPrice   sql.NullString `json:"b2b_price"`
+	B2bRrp     sql.NullString `json:"b2b_rrp"`
+	Model      string         `json:"model"`
 }
 
 type VariationAttribute struct {
 	VariationID      int64 `json:"variation_id"`
 	AttributeID      int64 `json:"attribute_id"`
 	AttributeValueID int64 `json:"attribute_value_id"`
+}
+
+type VariationGraduatedPrice struct {
+	ID              int64  `json:"id"`
+	VariationID     int64  `json:"variation_id"`
+	MinimumQuantity int32  `json:"minimum_quantity"`
+	Price           string `json:"price"`
+	Rrp             string `json:"rrp"`
 }
 
 type VariationProperty struct {

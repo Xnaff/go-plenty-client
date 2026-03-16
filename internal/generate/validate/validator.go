@@ -23,6 +23,36 @@ func NewValidator() *Validator {
 	}
 }
 
+// isCJKLanguage returns true for languages with logographic/ideographic scripts
+// (Chinese, Japanese, Korean) where each character carries significantly more
+// semantic content than Latin-script characters. Used to scale MinLength
+// thresholds since e.g. 30 Chinese characters ≈ 80+ English characters.
+func isCJKLanguage(lang string) bool {
+	switch lang {
+	case "zh", "ja", "ko":
+		return true
+	default:
+		return false
+	}
+}
+
+// effectiveMinLength returns the minimum length threshold adjusted for CJK
+// languages. CJK characters are logographic — each carries ~2-3x the semantic
+// content of a Latin character — so the minimum is halved.
+func effectiveMinLength(minLen int, lang string) int {
+	if minLen == 0 {
+		return 0
+	}
+	if isCJKLanguage(lang) {
+		scaled := minLen / 2
+		if scaled < 1 {
+			return 1
+		}
+		return scaled
+	}
+	return minLen
+}
+
 // ValidateProductTexts validates and sanitizes all 7 text fields.
 // Returns a COPY of the texts (does not mutate the original) and any validation errors.
 func (v *Validator) ValidateProductTexts(texts *generate.ProductTexts, lang string) (*generate.ProductTexts, []ValidationError) {
@@ -97,13 +127,16 @@ func (v *Validator) ValidateProductTexts(texts *generate.ProductTexts, lang stri
 			continue
 		}
 
-		// 5. MinLength check (use rune count, not byte length)
+		// 5. MinLength check (use rune count, not byte length).
+		// CJK languages get a halved threshold since each character carries
+		// ~2-3x the semantic content of a Latin character.
 		runeCount := utf8.RuneCountInString(value)
-		if constraint.MinLength > 0 && runeCount < constraint.MinLength {
+		minLen := effectiveMinLength(constraint.MinLength, lang)
+		if minLen > 0 && runeCount < minLen {
 			errs = append(errs, ValidationError{
 				Field:   acc.name,
 				Code:    "too_short",
-				Message: fmt.Sprintf("field %s has %d characters, minimum is %d", acc.name, runeCount, constraint.MinLength),
+				Message: fmt.Sprintf("field %s has %d characters, minimum is %d", acc.name, runeCount, minLen),
 				Level:   Error,
 			})
 		}

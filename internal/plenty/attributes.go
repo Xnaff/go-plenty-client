@@ -51,6 +51,32 @@ func (s *AttributeService) ListValues(ctx context.Context, attributeID int64, pa
 	return doJSON[PaginatedResponse[AttributeValue]](ctx, s.client, http.MethodGet, path, nil)
 }
 
+// CreateName creates a multilingual name for an attribute.
+// POST /rest/items/attributes/{attributeId}/names
+func (s *AttributeService) CreateName(ctx context.Context, attributeID int64, req *CreateAttributeNameRequest) (*AttributeName, error) {
+	path := fmt.Sprintf("/rest/items/attributes/%d/names", attributeID)
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodPost, path, req)
+		return &AttributeName{ID: -1, AttributeID: attributeID, Lang: req.Lang, Name: req.Name}, nil
+	}
+
+	return doJSON[AttributeName](ctx, s.client, http.MethodPost, path, req)
+}
+
+// CreateValueName creates a multilingual name for an attribute value.
+// POST /rest/items/attribute_values/{valueId}/names
+func (s *AttributeService) CreateValueName(ctx context.Context, valueID int64, req *CreateAttributeValueNameRequest) (*AttributeValueName, error) {
+	path := fmt.Sprintf("/rest/items/attribute_values/%d/names", valueID)
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodPost, path, req)
+		return &AttributeValueName{ID: -1, ValueID: valueID, Lang: req.Lang, Name: req.Name}, nil
+	}
+
+	return doJSON[AttributeValueName](ctx, s.client, http.MethodPost, path, req)
+}
+
 // Delete removes an attribute by ID.
 // DELETE /rest/attributes/{id}
 func (s *AttributeService) Delete(ctx context.Context, id int64) error {

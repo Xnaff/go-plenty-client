@@ -19,6 +19,7 @@ import (
 	"github.com/janemig/plentyone/internal/app"
 	"github.com/janemig/plentyone/internal/dashboard"
 	"github.com/janemig/plentyone/internal/domain"
+	"github.com/janemig/plentyone/internal/ean"
 	"github.com/janemig/plentyone/internal/enrichment"
 	"github.com/janemig/plentyone/internal/generate"
 	"github.com/janemig/plentyone/internal/generate/quality"
@@ -224,10 +225,31 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("updating job status: %w", err)
 	}
 
-	// Create one category per job; track its ID for product_categories linking.
+	// Create one parent category per job; track its ID for product_categories linking.
 	var categoryID int64
+	// Track subcategory IDs for product assignment (English subcategory name → local ID).
+	subcategoryMap := make(map[string]int64)
+	// Track whether property definitions and group have been persisted (once per job).
+	var propertyGroupID int64
+	var propertyDefsProcessed bool
+	// Track whether attribute definitions have been persisted (once per job).
+	var attributeDefsProcessed bool
+	// Attribute lookup maps: attrNameToID["Size"] = localID, attrValueNameToID["Size"]["M"] = localValueID
+	attrNameToID := make(map[string]int64)
+	attrValueNameToID := make(map[string]map[string]int64)
 
-	for i := 0; i < count; i++ {
+	// Generate products in batches to minimize API calls.
+	batchSize, _ := cmd.Flags().GetInt("batch-size")
+	if batchSize <= 0 {
+		batchSize = cfg.AI.BatchSize
+	}
+	if batchSize <= 0 {
+		batchSize = 5
+	}
+
+	var allProducts []*product.GeneratedProduct
+	remaining := count
+	for remaining > 0 {
 		select {
 		case <-ctx.Done():
 			_ = q.UpdateJobStatus(ctx, queries.UpdateJobStatusParams{
@@ -238,6 +260,11 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		default:
 		}
 
+		batchCount := batchSize
+		if batchCount > remaining {
+			batchCount = remaining
+		}
+
 		req := product.GenerationRequest{
 			ProductType: niche,
 			Niche:       niche,
@@ -245,15 +272,27 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			Category:    niche,
 		}
 
-		result, err := prodGen.Generate(ctx, req)
+		products, err := prodGen.GenerateBatch(ctx, req, batchCount)
 		if err != nil {
 			_ = q.UpdateJobStatus(ctx, queries.UpdateJobStatusParams{
 				Status: "failed",
 				ID:     jobID,
 			})
-			return fmt.Errorf("generating product %d/%d: %w", i+1, count, err)
+			return fmt.Errorf("batch generation failed: %w", err)
 		}
 
+		allProducts = append(allProducts, products...)
+		remaining -= len(products)
+
+		slog.Info("batch generated",
+			"products", len(products),
+			"total_so_far", len(allProducts),
+			"remaining", remaining,
+		)
+	}
+
+	// Persist each generated product.
+	for i, result := range allProducts {
 		// Get the product name from the first available language.
 		var productName string
 		for _, lang := range cfg.AI.Languages {
@@ -284,7 +323,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("creating product record: %w", err)
 		}
 
-		// Create category once per job.
+		// Create parent category and subcategories once per job.
 		if categoryID == 0 {
 			catID, err := q.CreateCategory(ctx, queries.CreateCategoryParams{
 				JobID:     jobID,
@@ -298,12 +337,94 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("creating category: %w", err)
 			}
 			categoryID = catID
+
+			// Persist parent category translations with descriptions.
+			for lang, name := range result.CategoryNames {
+				if lang == "en" || name == "" {
+					continue
+				}
+				desc := result.CategoryDescriptions[lang]
+				if _, err := q.CreateCategoryTranslation(ctx, queries.CreateCategoryTranslationParams{
+					CategoryID:  categoryID,
+					Lang:        lang,
+					Name:        name,
+					Description: desc,
+				}); err != nil {
+					logger.Warn("failed to persist category translation",
+						"lang", lang, "error", err)
+				}
+			}
+			// Persist English description too.
+			if enDesc, ok := result.CategoryDescriptions["en"]; ok && enDesc != "" {
+				if _, err := q.CreateCategoryTranslation(ctx, queries.CreateCategoryTranslationParams{
+					CategoryID:  categoryID,
+					Lang:        "en",
+					Name:        niche,
+					Description: enDesc,
+				}); err != nil {
+					logger.Warn("failed to persist English category description", "error", err)
+				}
+			}
+
+			// Create subcategories.
+			for sortIdx, sub := range result.Subcategories {
+				subID, err := q.CreateCategory(ctx, queries.CreateCategoryParams{
+					JobID:     jobID,
+					ParentID:  sql.NullInt64{Int64: categoryID, Valid: true},
+					Name:      sub.Name,
+					Level:     2,
+					SortOrder: int32(sortIdx),
+					Status:    string(domain.StatusPending),
+				})
+				if err != nil {
+					logger.Warn("failed to create subcategory",
+						"name", sub.Name, "error", err)
+					continue
+				}
+				subcategoryMap[sub.Name] = subID
+
+				// Persist subcategory translations with descriptions.
+				for lang, name := range sub.Translations {
+					desc := sub.Descriptions[lang]
+					if _, err := q.CreateCategoryTranslation(ctx, queries.CreateCategoryTranslationParams{
+						CategoryID:  subID,
+						Lang:        lang,
+						Name:        name,
+						Description: desc,
+					}); err != nil {
+						logger.Warn("failed to persist subcategory translation",
+							"subcategory", sub.Name, "lang", lang, "error", err)
+					}
+				}
+				// Persist English description for subcategory.
+				if enDesc, ok := sub.Descriptions["en"]; ok && enDesc != "" {
+					if _, err := q.CreateCategoryTranslation(ctx, queries.CreateCategoryTranslationParams{
+						CategoryID:  subID,
+						Lang:        "en",
+						Name:        sub.Name,
+						Description: enDesc,
+					}); err != nil {
+						logger.Warn("failed to persist English subcategory description", "error", err)
+					}
+				}
+			}
+
+			logger.Info("created categories",
+				"parent_id", categoryID,
+				"subcategories", len(subcategoryMap),
+			)
 		}
 
-		// Link product to category.
+		// Link product to its subcategory (or parent if no match).
+		linkCategoryID := categoryID
+		if result.Subcategory != "" {
+			if subID, ok := subcategoryMap[result.Subcategory]; ok {
+				linkCategoryID = subID
+			}
+		}
 		if err := q.CreateProductCategory(ctx, queries.CreateProductCategoryParams{
 			ProductID:  productID,
-			CategoryID: categoryID,
+			CategoryID: linkCategoryID,
 		}); err != nil {
 			return fmt.Errorf("linking product to category: %w", err)
 		}
@@ -335,7 +456,70 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Create default variation with AI-generated price.
+		// Persist attribute definitions once per job.
+		if !attributeDefsProcessed && len(result.AttributeDefs) > 0 {
+			attributeDefsProcessed = true
+			for _, def := range result.AttributeDefs {
+				attrID, attrErr := getOrCreateAttribute(ctx, q, jobID, def.Name)
+				if attrErr != nil {
+					logger.Warn("failed to get/create attribute",
+						"attribute", def.Name, "error", attrErr)
+					continue
+				}
+				attrNameToID[def.Name] = attrID
+				attrValueNameToID[def.Name] = make(map[string]int64)
+
+				// Create attribute values.
+				for sortIdx, valName := range def.Values {
+					valID, valErr := q.CreateAttributeValue(ctx, queries.CreateAttributeValueParams{
+						AttributeID: attrID,
+						Name:        valName,
+						SortOrder:   int32(sortIdx),
+					})
+					if valErr != nil {
+						logger.Warn("failed to create attribute value",
+							"attribute", def.Name, "value", valName, "error", valErr)
+						continue
+					}
+					attrValueNameToID[def.Name][valName] = valID
+
+					// Persist value translations.
+					for lang, trans := range def.Translations {
+						if sortIdx < len(trans.Values) && trans.Values[sortIdx] != "" {
+							if _, err := q.CreateAttributeValueTranslation(ctx, queries.CreateAttributeValueTranslationParams{
+								AttributeValueID: valID,
+								Lang:             lang,
+								Name:             trans.Values[sortIdx],
+							}); err != nil {
+								logger.Warn("failed to persist attribute value translation",
+									"attribute", def.Name, "value", valName,
+									"lang", lang, "error", err)
+							}
+						}
+					}
+				}
+
+				// Persist attribute name translations.
+				for lang, trans := range def.Translations {
+					if trans.Name == "" {
+						continue
+					}
+					if _, err := q.CreateAttributeNameTranslation(ctx, queries.CreateAttributeNameTranslationParams{
+						AttributeID: attrID,
+						Lang:        lang,
+						Name:        trans.Name,
+					}); err != nil {
+						logger.Warn("failed to persist attribute name translation",
+							"attribute", def.Name, "lang", lang, "error", err)
+					}
+				}
+			}
+			logger.Info("persisted attribute definitions",
+				"attribute_count", len(result.AttributeDefs),
+			)
+		}
+
+		// Build common variation fields.
 		skuPrefix := niche
 		if len(skuPrefix) > 3 {
 			skuPrefix = skuPrefix[:3]
@@ -344,18 +528,265 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		if variationCurrency == "" {
 			variationCurrency = "EUR"
 		}
-		if _, err := q.CreateVariation(ctx, queries.CreateVariationParams{
-			ProductID:  productID,
-			Name:       "Default",
-			Sku:        fmt.Sprintf("%s-%d", skuPrefix, productID),
-			Price:      sql.NullString{String: fmt.Sprintf("%.2f", result.Price), Valid: true},
-			Currency:   variationCurrency,
-			Weight:     sql.NullString{},
-			WeightUnit: "",
-			Barcode:    "",
-			Status:     string(domain.StatusPending),
-		}); err != nil {
-			return fmt.Errorf("creating variation: %w", err)
+		var weightVal sql.NullString
+		weightUnit := ""
+		if result.Weight > 0 {
+			weightVal = sql.NullString{String: fmt.Sprintf("%.3f", result.Weight), Valid: true}
+			weightUnit = result.WeightUnit
+			if weightUnit == "" {
+				weightUnit = "kg"
+			}
+		}
+		var rrpVal sql.NullString
+		if result.RRP > 0 {
+			rrpVal = sql.NullString{String: fmt.Sprintf("%.2f", result.RRP), Valid: true}
+		}
+		var b2bPriceVal sql.NullString
+		if result.B2BPrice > 0 {
+			b2bPriceVal = sql.NullString{String: fmt.Sprintf("%.2f", result.B2BPrice), Valid: true}
+		}
+		var b2bRrpVal sql.NullString
+		if result.B2BRRP > 0 {
+			b2bRrpVal = sql.NullString{String: fmt.Sprintf("%.2f", result.B2BRRP), Valid: true}
+		}
+		lengthMM := int32(result.LengthCM * 10)
+		widthMM := int32(result.WidthCM * 10)
+		heightMM := int32(result.HeightCM * 10)
+
+		// Compute variation combos: cartesian product of attribute assignments, or single "Default".
+		type attrCombo struct {
+			name     string // e.g., "S / Black"
+			attrVals []struct {
+				attrName  string
+				valueName string
+			}
+		}
+		var combos []attrCombo
+
+		if len(result.AttributeAssignments) > 0 {
+			// Build cartesian product.
+			combos = []attrCombo{{}}
+			for _, assignment := range result.AttributeAssignments {
+				var expanded []attrCombo
+				for _, combo := range combos {
+					for _, val := range assignment.Values {
+						newCombo := attrCombo{
+							attrVals: make([]struct {
+								attrName  string
+								valueName string
+							}, len(combo.attrVals)+1),
+						}
+						copy(newCombo.attrVals, combo.attrVals)
+						newCombo.attrVals[len(combo.attrVals)] = struct {
+							attrName  string
+							valueName string
+						}{assignment.Name, val}
+						expanded = append(expanded, newCombo)
+					}
+				}
+				combos = expanded
+			}
+			// Set combo names and apply hard cap.
+			const maxVariations = 50
+			if len(combos) > maxVariations {
+				logger.Warn("cartesian product too large, truncating",
+					"product_id", productID,
+					"combos", len(combos),
+					"max", maxVariations,
+				)
+				combos = combos[:maxVariations]
+			}
+			for idx := range combos {
+				parts := make([]string, len(combos[idx].attrVals))
+				for j, av := range combos[idx].attrVals {
+					parts[j] = av.valueName
+				}
+				combos[idx].name = strings.Join(parts, " / ")
+			}
+		} else {
+			// No attributes — single "Default" variation.
+			combos = []attrCombo{{name: "Default"}}
+		}
+
+		// Create one variation per combo.
+		var firstVariationID int64
+		for varIdx, combo := range combos {
+			barcode, bErr := ean.GenerateEAN13()
+			if bErr != nil {
+				logger.Warn("failed to generate barcode", "error", bErr)
+				barcode = ""
+			}
+
+			variationID, vErr := q.CreateVariation(ctx, queries.CreateVariationParams{
+				ProductID:  productID,
+				Name:       combo.name,
+				Sku:        fmt.Sprintf("%s-%d-%d", skuPrefix, productID, varIdx),
+				Price:      sql.NullString{String: fmt.Sprintf("%.2f", result.Price), Valid: true},
+				Rrp:        rrpVal,
+				B2bPrice:   b2bPriceVal,
+				B2bRrp:     b2bRrpVal,
+				Currency:   variationCurrency,
+				Weight:     weightVal,
+				WeightUnit: weightUnit,
+				SalesUnit:  result.SalesUnit,
+				LengthMm:   lengthMM,
+				WidthMm:    widthMM,
+				HeightMm:   heightMM,
+				Barcode:    barcode,
+				Model:      result.Model,
+				Status:     string(domain.StatusPending),
+			})
+			if vErr != nil {
+				return fmt.Errorf("creating variation %q: %w", combo.name, vErr)
+			}
+			if varIdx == 0 {
+				firstVariationID = variationID
+			}
+
+			// Link variation to attribute values.
+			for _, av := range combo.attrVals {
+				attrID, aOk := attrNameToID[av.attrName]
+				if !aOk {
+					continue
+				}
+				valMap, vOk := attrValueNameToID[av.attrName]
+				if !vOk {
+					continue
+				}
+				valID, vvOk := valMap[av.valueName]
+				if !vvOk {
+					continue
+				}
+				if vaErr := q.CreateVariationAttribute(ctx, queries.CreateVariationAttributeParams{
+					VariationID:      variationID,
+					AttributeID:      attrID,
+					AttributeValueID: valID,
+				}); vaErr != nil {
+					logger.Warn("failed to link variation to attribute",
+						"variation_id", variationID,
+						"attribute", av.attrName,
+						"value", av.valueName,
+						"error", vaErr,
+					)
+				}
+			}
+
+			// Insert graduated prices for each variation.
+			for _, gp := range result.GraduatedPrices {
+				if _, gpErr := q.CreateGraduatedPrice(ctx, queries.CreateGraduatedPriceParams{
+					VariationID:     variationID,
+					MinimumQuantity: int32(gp.MinimumQuantity),
+					Price:           fmt.Sprintf("%.2f", gp.Price),
+					Rrp:             fmt.Sprintf("%.2f", gp.RRP),
+				}); gpErr != nil {
+					logger.Warn("failed to insert graduated price",
+						"variation_id", variationID,
+						"min_qty", gp.MinimumQuantity,
+						"error", gpErr,
+					)
+				}
+			}
+
+			// Persist selection properties on each variation.
+			for _, pv := range result.PropertyVals {
+				if pv.Name == "" || pv.Value == "" {
+					continue
+				}
+				propID, propErr := getOrCreateProperty(ctx, q, jobID, pv.Name)
+				if propErr != nil {
+					continue
+				}
+				_, _ = q.CreateVariationProperty(ctx, queries.CreateVariationPropertyParams{
+					VariationID: variationID,
+					PropertyID:  propID,
+					ValueText:   sql.NullString{String: pv.Value, Valid: true},
+				})
+			}
+		}
+
+		logger.Info("created variations",
+			"product_id", productID,
+			"variation_count", len(combos),
+			"first_variation_id", firstVariationID,
+		)
+		_ = firstVariationID // suppress unused warning if needed
+
+		// Persist property translations and group once per job (from first product in batch).
+		if !propertyDefsProcessed && len(result.PropertyDefs) > 0 {
+			propertyDefsProcessed = true
+
+			// Create property group for this job.
+			pgID, pgErr := q.CreatePropertyGroup(ctx, queries.CreatePropertyGroupParams{
+				JobID:  jobID,
+				Name:   niche,
+				Status: string(domain.StatusPending),
+			})
+			if pgErr != nil {
+				logger.Warn("failed to create property group", "error", pgErr)
+			} else {
+				propertyGroupID = pgID
+				// Persist group translations from category names (same niche translations).
+				for lang, name := range result.CategoryNames {
+					if _, err := q.CreatePropertyGroupTranslation(ctx, queries.CreatePropertyGroupTranslationParams{
+						PropertyGroupID: propertyGroupID,
+						Lang:            lang,
+						Name:            name,
+					}); err != nil {
+						logger.Warn("failed to persist property group translation",
+							"lang", lang, "error", err)
+					}
+				}
+			}
+
+			// Persist property name and option translations for each definition.
+			for _, def := range result.PropertyDefs {
+				propID, propErr := getOrCreateProperty(ctx, q, jobID, def.Name)
+				if propErr != nil {
+					logger.Warn("failed to get/create property for translations",
+						"property", def.Name, "error", propErr)
+					continue
+				}
+
+				// Link property to group.
+				if propertyGroupID > 0 {
+					_ = q.UpdatePropertyGroupID(ctx, queries.UpdatePropertyGroupIDParams{
+						PropertyGroupID: sql.NullInt64{Int64: propertyGroupID, Valid: true},
+						ID:              propID,
+					})
+				}
+
+				// Persist name translations.
+				for lang, trans := range def.Translations {
+					if trans.Name == "" {
+						continue
+					}
+					if _, err := q.CreatePropertyNameTranslation(ctx, queries.CreatePropertyNameTranslationParams{
+						PropertyID: propID,
+						Lang:       lang,
+						Name:       trans.Name,
+					}); err != nil {
+						logger.Warn("failed to persist property name translation",
+							"property", def.Name, "lang", lang, "error", err)
+					}
+
+					// Persist option translations.
+					for optIdx, optName := range trans.Options {
+						if optIdx >= len(def.Options) || optName == "" {
+							continue
+						}
+						if _, err := q.CreatePropertyOptionTranslation(ctx, queries.CreatePropertyOptionTranslationParams{
+							PropertyID: propID,
+							OptionKey:  def.Options[optIdx],
+							Lang:       lang,
+							Name:       optName,
+						}); err != nil {
+							logger.Warn("failed to persist property option translation",
+								"property", def.Name, "option", def.Options[optIdx],
+								"lang", lang, "error", err)
+						}
+					}
+				}
+			}
 		}
 
 		// Step A: Generate AI images.
@@ -568,7 +999,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	// Create PlentyONE client.
 	plentyClient := plenty.NewClient(plenty.ClientConfig{
-		BaseURL:   cfg.API.BaseURL,
+		BaseURL:   cfg.API.EffectiveBaseURL(),
 		Username:  cfg.API.Username,
 		Password:  cfg.API.Password,
 		RateLimit: cfg.API.RateLimit,
@@ -902,6 +1333,383 @@ func runServe(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// getOrCreateProperty returns the local property ID for the given job and
+// property name, creating a new selection-type property record if needed.
+func getOrCreateProperty(ctx context.Context, q *queries.Queries, jobID int64, name string) (int64, error) {
+	prop, err := q.GetPropertyByJobAndName(ctx, queries.GetPropertyByJobAndNameParams{
+		JobID: jobID,
+		Name:  name,
+	})
+	if err == nil {
+		return prop.ID, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, fmt.Errorf("looking up property %q: %w", name, err)
+	}
+	// Property doesn't exist yet — create it.
+	propID, err := q.CreateProperty(ctx, queries.CreatePropertyParams{
+		JobID:        jobID,
+		Name:         name,
+		PropertyType: "selection",
+		Status:       string(domain.StatusPending),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("creating property %q: %w", name, err)
+	}
+	return propID, nil
+}
+
+// getOrCreateAttribute returns the local attribute ID for the given job and
+// name, creating it if it doesn't exist yet.
+func getOrCreateAttribute(ctx context.Context, q *queries.Queries, jobID int64, name string) (int64, error) {
+	attr, err := q.GetAttributeByJobAndName(ctx, queries.GetAttributeByJobAndNameParams{
+		JobID: jobID,
+		Name:  name,
+	})
+	if err == nil {
+		return attr.ID, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, fmt.Errorf("looking up attribute %q: %w", name, err)
+	}
+	// Attribute doesn't exist yet — create it.
+	attrID, err := q.CreateAttribute(ctx, queries.CreateAttributeParams{
+		JobID:    jobID,
+		Name:     name,
+		AttrType: "selection",
+		Status:   string(domain.StatusPending),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("creating attribute %q: %w", name, err)
+	}
+	return attrID, nil
+}
+
+var addPropertiesCmd = &cobra.Command{
+	Use:   "add-properties",
+	Short: "Add selection properties to variations that don't have any",
+	Long: `Finds all variations in a job that have no properties and generates
+selection-type property values for them using the configured AI provider.
+If the job already has property definitions from a previous generation run,
+those are reused. Otherwise, new definitions are generated automatically.`,
+	RunE: runAddProperties,
+}
+
+func runAddProperties(cmd *cobra.Command, args []string) error {
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	logger := slog.Default()
+
+	jobID, _ := cmd.Flags().GetInt64("job-id")
+	provider, _ := cmd.Flags().GetString("provider")
+
+	// Open DB connection.
+	db, err := storage.NewDB(cfg.Database)
+	if err != nil {
+		return fmt.Errorf("connecting to database: %w", err)
+	}
+	defer db.Close()
+	q := queries.New(db)
+
+	// Verify job exists and extract product type from config.
+	job, err := q.GetJob(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("getting job %d: %w", jobID, err)
+	}
+
+	var jobConfig struct {
+		Niche string `json:"niche"`
+	}
+	if err := json.Unmarshal(job.Config, &jobConfig); err != nil {
+		return fmt.Errorf("parsing job config: %w", err)
+	}
+	productType := jobConfig.Niche
+	if productType == "" {
+		productType = "general"
+	}
+
+	// Find variations without properties.
+	variations, err := q.ListVariationsWithoutPropertiesByJob(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("listing variations without properties: %w", err)
+	}
+
+	if len(variations) == 0 {
+		fmt.Println("All variations already have properties.")
+		return nil
+	}
+
+	logger.Info("found variations without properties",
+		"count", len(variations),
+		"job_id", jobID,
+	)
+
+	// Override provider if flag is set.
+	if provider != "" {
+		cfg.AI.Provider = provider
+	}
+
+	// Create AI generator.
+	gen, err := app.NewGeneratorFromConfig(cfg, logger)
+	if err != nil {
+		return fmt.Errorf("creating AI generator: %w", err)
+	}
+
+	// Resolve property definitions: either reuse existing or generate new ones.
+	propertySpecs, err := resolvePropertySpecs(ctx, q, gen, jobID, productType, logger)
+	if err != nil {
+		return fmt.Errorf("resolving property definitions: %w", err)
+	}
+
+	if len(propertySpecs) == 0 {
+		return fmt.Errorf("no property definitions could be resolved for job %d", jobID)
+	}
+
+	logger.Info("resolved property definitions",
+		"count", len(propertySpecs),
+		"names", propertySpecNames(propertySpecs),
+	)
+
+	// Group variations by product.
+	type productVariations struct {
+		productName string
+		productType string
+		variationIDs []int64
+	}
+	byProduct := make(map[int64]*productVariations)
+	for _, v := range variations {
+		pv, ok := byProduct[v.ProductID]
+		if !ok {
+			pv = &productVariations{
+				productName: v.ProductName,
+				productType: v.ProductType,
+			}
+			byProduct[v.ProductID] = pv
+		}
+		pv.variationIDs = append(pv.variationIDs, v.VariationID)
+	}
+
+	// Generate property values per product and persist.
+	var totalAdded int
+	for productID, pv := range byProduct {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		propReq := generate.PropertyValueRequest{
+			ProductType: pv.productType,
+			ProductName: pv.productName,
+			Properties:  propertySpecs,
+			Language:    "en", // selection properties are language-independent
+		}
+
+		propVals, err := gen.GeneratePropertyValues(ctx, propReq)
+		if err != nil {
+			logger.Warn("failed to generate property values",
+				"product_id", productID,
+				"product_name", pv.productName,
+				"error", err,
+			)
+			continue
+		}
+
+		// Persist the same property values for each variation of this product.
+		for _, varID := range pv.variationIDs {
+			added := 0
+			for _, val := range propVals.Values {
+				// Find the spec name by property ID.
+				specName := ""
+				selectionValue := val.SelectionValue
+				for _, s := range propertySpecs {
+					if s.ID == val.PropertyID {
+						specName = s.Name
+						break
+					}
+				}
+				if specName == "" || selectionValue == "" {
+					continue
+				}
+
+				propID, propErr := getOrCreateProperty(ctx, q, jobID, specName)
+				if propErr != nil {
+					logger.Warn("failed to get/create property",
+						"property", specName,
+						"error", propErr,
+					)
+					continue
+				}
+
+				if _, vpErr := q.CreateVariationProperty(ctx, queries.CreateVariationPropertyParams{
+					VariationID: varID,
+					PropertyID:  propID,
+					ValueText:   sql.NullString{String: selectionValue, Valid: true},
+				}); vpErr != nil {
+					logger.Warn("failed to insert variation property",
+						"variation_id", varID,
+						"property", specName,
+						"value", selectionValue,
+						"error", vpErr,
+					)
+					continue
+				}
+				added++
+			}
+			totalAdded += added
+		}
+
+		logger.Info("added properties to product",
+			"product_id", productID,
+			"product_name", pv.productName,
+			"variations", len(pv.variationIDs),
+		)
+	}
+
+	fmt.Printf("Added %d property values across %d variations (job ID: %d)\n",
+		totalAdded, len(variations), jobID)
+	return nil
+}
+
+// resolvePropertySpecs builds PropertySpecs for the add-properties command.
+// If the job already has property definitions, their names and distinct values
+// are used. Otherwise, a mini batch generation is run to discover appropriate
+// property definitions for the product type.
+func resolvePropertySpecs(ctx context.Context, q *queries.Queries, gen generate.Generator, jobID int64, productType string, logger *slog.Logger) ([]generate.PropertySpec, error) {
+	// Check for existing property definitions.
+	existingProps, err := q.ListPropertiesByJob(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("listing properties for job %d: %w", jobID, err)
+	}
+
+	if len(existingProps) > 0 {
+		logger.Info("reusing existing property definitions",
+			"count", len(existingProps),
+		)
+
+		specs := make([]generate.PropertySpec, 0, len(existingProps))
+		for _, prop := range existingProps {
+			// Get existing option values for this property.
+			distinctVals, err := q.ListDistinctPropertyValues(ctx, prop.ID)
+			if err != nil {
+				logger.Warn("failed to load distinct values for property",
+					"property_id", prop.ID,
+					"property_name", prop.Name,
+					"error", err,
+				)
+				continue
+			}
+
+			options := make([]string, 0, len(distinctVals))
+			for _, v := range distinctVals {
+				if v.Valid && v.String != "" {
+					options = append(options, v.String)
+				}
+			}
+
+			specs = append(specs, generate.PropertySpec{
+				ID:           prop.ID,
+				Name:         prop.Name,
+				PropertyType: "selection",
+				Options:      options,
+			})
+		}
+		return specs, nil
+	}
+
+	// No existing properties — generate definitions via a mini batch call.
+	logger.Info("no existing property definitions, generating via batch call")
+
+	batcher, ok := gen.(generate.BatchGenerator)
+	if !ok {
+		return nil, fmt.Errorf("provider %q does not support batch generation; cannot auto-generate property definitions", gen.Name())
+	}
+
+	batchReq := generate.BatchRequest{
+		ProductType: productType,
+		Category:    productType,
+		Niche:       productType,
+		Count:       1,
+		Languages:   cfg.AI.Languages,
+		Currency:    "EUR",
+	}
+
+	result, err := batcher.GenerateBatch(ctx, batchReq)
+	if err != nil {
+		return nil, fmt.Errorf("mini batch generation for property defs: %w", err)
+	}
+
+	if len(result.Properties) == 0 {
+		return nil, fmt.Errorf("batch generation returned no property definitions")
+	}
+
+	// Store definitions in the properties table and build specs.
+	// Also persist translations from the batch result.
+	specs := make([]generate.PropertySpec, 0, len(result.Properties))
+	for _, def := range result.Properties {
+		propID, err := getOrCreateProperty(ctx, q, jobID, def.Name)
+		if err != nil {
+			logger.Warn("failed to store property definition",
+				"name", def.Name,
+				"error", err,
+			)
+			continue
+		}
+
+		// Persist name and option translations.
+		for lang, trans := range def.Translations {
+			if trans.Name != "" {
+				if _, tErr := q.CreatePropertyNameTranslation(ctx, queries.CreatePropertyNameTranslationParams{
+					PropertyID: propID,
+					Lang:       lang,
+					Name:       trans.Name,
+				}); tErr != nil {
+					logger.Warn("failed to persist property name translation",
+						"property", def.Name, "lang", lang, "error", tErr)
+				}
+			}
+			for optIdx, optName := range trans.Options {
+				if optIdx >= len(def.Options) || optName == "" {
+					continue
+				}
+				if _, tErr := q.CreatePropertyOptionTranslation(ctx, queries.CreatePropertyOptionTranslationParams{
+					PropertyID: propID,
+					OptionKey:  def.Options[optIdx],
+					Lang:       lang,
+					Name:       optName,
+				}); tErr != nil {
+					logger.Warn("failed to persist property option translation",
+						"property", def.Name, "option", def.Options[optIdx],
+						"lang", lang, "error", tErr)
+				}
+			}
+		}
+
+		specs = append(specs, generate.PropertySpec{
+			ID:           propID,
+			Name:         def.Name,
+			PropertyType: "selection",
+			Options:      def.Options,
+		})
+	}
+
+	logger.Info("generated property definitions from batch",
+		"count", len(specs),
+	)
+
+	return specs, nil
+}
+
+// propertySpecNames returns the names of property specs for logging.
+func propertySpecNames(specs []generate.PropertySpec) string {
+	names := make([]string, len(specs))
+	for i, s := range specs {
+		names[i] = s.Name
+	}
+	return strings.Join(names, ", ")
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
 	rootCmd.AddCommand(versionCmd)
@@ -911,6 +1719,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(addPropertiesCmd)
 
 	migrateCmd.AddCommand(migrateUpCmd)
 	migrateCmd.AddCommand(migrateDownCmd)
@@ -921,7 +1730,8 @@ func init() {
 
 	generateCmd.Flags().String("niche", "", "product niche (e.g., electronics, fashion)")
 	generateCmd.Flags().Int("count", 10, "number of products to generate")
-	generateCmd.Flags().String("provider", "", "AI provider override (mock, openai)")
+	generateCmd.Flags().String("provider", "", "AI provider override (mock, openai, gemini, claude)")
+	generateCmd.Flags().Int("batch-size", 0, "products per batch API call (default from config or 5)")
 	_ = generateCmd.MarkFlagRequired("niche")
 
 	pushCmd.Flags().Int64("job-id", 0, "job ID to push")
@@ -932,4 +1742,8 @@ func init() {
 
 	statusCmd.Flags().Int64("job-id", 0, "filter by job ID")
 	statusCmd.Flags().Int64("run-id", 0, "filter by pipeline run ID")
+
+	addPropertiesCmd.Flags().Int64("job-id", 0, "job ID to add properties to")
+	addPropertiesCmd.Flags().String("provider", "", "AI provider override (mock, openai, gemini, claude)")
+	_ = addPropertiesCmd.MarkFlagRequired("job-id")
 }

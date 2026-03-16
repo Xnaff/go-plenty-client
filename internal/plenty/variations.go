@@ -51,7 +51,18 @@ func (s *VariationService) ListSalesPriceConfigs(ctx context.Context) ([]SalesPr
 
 	if s.client.dryRun {
 		dryRunLog(s.client.logger, http.MethodGet, path, nil)
-		return []SalesPriceConfig{{ID: 1, Type: "default"}}, nil
+		return []SalesPriceConfig{
+			{ID: 1, Type: "default"},
+			{ID: 2, Type: "rrp", Position: 1},
+			{ID: 3, Type: "default", Position: 2, Names: []SalesPriceName{
+				{Lang: "en", NameInternal: "B2B Price", NameExternal: "B2B Price"},
+				{Lang: "de", NameInternal: "B2B Preis", NameExternal: "B2B Preis"},
+			}},
+			{ID: 4, Type: "rrp", Position: 3, Names: []SalesPriceName{
+				{Lang: "en", NameInternal: "B2B RRP", NameExternal: "B2B RRP"},
+				{Lang: "de", NameInternal: "B2B UVP", NameExternal: "B2B UVP"},
+			}},
+		}, nil
 	}
 
 	var configs []SalesPriceConfig
@@ -95,4 +106,71 @@ func (s *VariationService) Delete(ctx context.Context, itemID, variationID int64
 	}
 
 	return nil
+}
+
+// ListUnits retrieves all available units of measurement.
+// GET /rest/items/units
+func (s *VariationService) ListUnits(ctx context.Context) ([]Unit, error) {
+	path := "/rest/items/units"
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodGet, path, nil)
+		return []Unit{
+			{ID: 1, UnitOfMeasurement: "C62"},
+			{ID: 2, UnitOfMeasurement: "KGM"},
+			{ID: 3, UnitOfMeasurement: "GRM"},
+			{ID: 4, UnitOfMeasurement: "LTR"},
+			{ID: 5, UnitOfMeasurement: "MLT"},
+			{ID: 6, UnitOfMeasurement: "MTR"},
+		}, nil
+	}
+
+	var units []Unit
+	if err := s.client.do(ctx, http.MethodGet, path, nil, &units); err != nil {
+		return nil, fmt.Errorf("listing units: %w", err)
+	}
+	return units, nil
+}
+
+// ListBarcodeConfigs retrieves all barcode configurations.
+// GET /rest/items/barcodes
+func (s *VariationService) ListBarcodeConfigs(ctx context.Context) ([]BarcodeConfig, error) {
+	path := "/rest/items/barcodes"
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodGet, path, nil)
+		return []BarcodeConfig{{ID: 1, Name: "EAN", Type: "GTIN_13"}}, nil
+	}
+
+	var configs []BarcodeConfig
+	if err := s.client.do(ctx, http.MethodGet, path, nil, &configs); err != nil {
+		return nil, fmt.Errorf("listing barcode configs: %w", err)
+	}
+	return configs, nil
+}
+
+// SetBarcode assigns a barcode to a variation.
+// POST /rest/items/{itemId}/variations/{variationId}/variation_barcodes
+func (s *VariationService) SetBarcode(ctx context.Context, itemID, variationID int64, req *CreateVariationBarcodeRequest) (*VariationBarcode, error) {
+	path := fmt.Sprintf("/rest/items/%d/variations/%d/variation_barcodes", itemID, variationID)
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodPost, path, req)
+		return &VariationBarcode{BarcodeID: req.BarcodeID, Code: req.Code, VariationID: variationID}, nil
+	}
+
+	return doJSON[VariationBarcode](ctx, s.client, http.MethodPost, path, req)
+}
+
+// CreateSalesPriceConfig creates a new sales price configuration.
+// POST /rest/items/sales_prices
+func (s *VariationService) CreateSalesPriceConfig(ctx context.Context, req *CreateSalesPriceConfigRequest) (*SalesPriceConfig, error) {
+	path := "/rest/items/sales_prices"
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodPost, path, req)
+		return &SalesPriceConfig{ID: -1, Type: req.Type, Position: req.Position, MinimumOrderQuantity: req.MinimumOrderQuantity}, nil
+	}
+
+	return doJSON[SalesPriceConfig](ctx, s.client, http.MethodPost, path, req)
 }

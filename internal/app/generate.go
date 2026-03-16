@@ -1,16 +1,22 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
+	anthropic "github.com/anthropics/anthropic-sdk-go"
+	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
 	oai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"google.golang.org/genai"
 
 	"github.com/janemig/plentyone/internal/enrichment"
 	"github.com/janemig/plentyone/internal/enrichment/openfoodfacts"
 	"github.com/janemig/plentyone/internal/enrichment/wikidata"
 	"github.com/janemig/plentyone/internal/generate"
+	claudeprovider "github.com/janemig/plentyone/internal/generate/claude"
+	geminiprovider "github.com/janemig/plentyone/internal/generate/gemini"
 	"github.com/janemig/plentyone/internal/generate/mock"
 	oaiprovider "github.com/janemig/plentyone/internal/generate/openai"
 	"github.com/janemig/plentyone/internal/generate/quality"
@@ -25,8 +31,28 @@ import (
 func NewGeneratorFromConfig(cfg *Config, logger *slog.Logger) (generate.Generator, error) {
 	switch cfg.AI.Provider {
 	case "openai":
-		client := oai.NewClient(option.WithAPIKey(cfg.AI.APIKey))
+		opts := []option.RequestOption{option.WithAPIKey(cfg.AI.APIKey)}
+		if cfg.AI.BaseURL != "" {
+			opts = append(opts, option.WithBaseURL(cfg.AI.BaseURL))
+		}
+		client := oai.NewClient(opts...)
 		return oaiprovider.NewProvider(client, cfg.AI.Model, logger), nil
+	case "gemini":
+		client, err := newGeminiClient(cfg.AI.APIKey)
+		if err != nil {
+			return nil, fmt.Errorf("creating gemini client: %w", err)
+		}
+		return geminiprovider.NewProvider(client, cfg.AI.Model, logger), nil
+	case "claude":
+		var opts []anthropicoption.RequestOption
+		if cfg.AI.APIKey != "" {
+			opts = append(opts, anthropicoption.WithAPIKey(cfg.AI.APIKey))
+		}
+		if cfg.AI.BaseURL != "" {
+			opts = append(opts, anthropicoption.WithBaseURL(cfg.AI.BaseURL))
+		}
+		client := anthropic.NewClient(opts...)
+		return claudeprovider.NewProvider(client, cfg.AI.Model, logger), nil
 	case "mock":
 		return &mock.Provider{}, nil
 	default:
@@ -38,8 +64,26 @@ func NewGeneratorFromConfig(cfg *Config, logger *slog.Logger) (generate.Generato
 func NewImageGeneratorFromConfig(cfg *Config, logger *slog.Logger) (generate.ImageGenerator, error) {
 	switch cfg.Images.Provider {
 	case "openai":
-		client := oai.NewClient(option.WithAPIKey(cfg.AI.APIKey))
+		apiKey := cfg.Images.APIKey
+		if apiKey == "" {
+			apiKey = cfg.AI.APIKey // fall back to shared AI key
+		}
+		opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+		if cfg.Images.BaseURL != "" {
+			opts = append(opts, option.WithBaseURL(cfg.Images.BaseURL))
+		}
+		client := oai.NewClient(opts...)
 		return oaiprovider.NewImageProvider(client, cfg.Images.Model, logger), nil
+	case "gemini":
+		apiKey := cfg.Images.APIKey
+		if apiKey == "" {
+			apiKey = cfg.AI.APIKey // fall back to shared AI key
+		}
+		client, err := newGeminiClient(apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("creating gemini image client: %w", err)
+		}
+		return geminiprovider.NewImageProvider(client, cfg.Images.Model, logger), nil
 	case "mock":
 		return &mock.Provider{}, nil
 	default:
@@ -103,5 +147,13 @@ func NewQualityScorerFromConfig(cfg *Config) *quality.Scorer {
 		MinTextScore:    cfg.Quality.MinTextScore,
 		MinImageScore:   cfg.Quality.MinImageScore,
 		MinDataScore:    cfg.Quality.MinDataScore,
+	})
+}
+
+// newGeminiClient creates a Gemini API client with the given API key.
+func newGeminiClient(apiKey string) (*genai.Client, error) {
+	return genai.NewClient(context.Background(), &genai.ClientConfig{
+		APIKey:  apiKey,
+		Backend: genai.BackendGeminiAPI,
 	})
 }

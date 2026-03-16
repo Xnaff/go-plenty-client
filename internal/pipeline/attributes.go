@@ -164,6 +164,32 @@ func (s *AttributeStage) processAttribute(ctx context.Context, rc *RunContext, l
 		slog.String("name", attr.Name),
 	)
 
+	// Push multilingual attribute name translations.
+	nameTranslations, ntErr := s.db.ListAttributeNameTranslations(ctx, attr.ID)
+	if ntErr != nil {
+		logger.Warn("failed to load attribute name translations",
+			slog.Int64("attribute_id", attr.ID), slog.String("error", ntErr.Error()))
+	} else {
+		for _, nt := range nameTranslations {
+			if _, nErr := s.client.Attributes.CreateName(ctx, result.ID, &plenty.CreateAttributeNameRequest{
+				Lang: nt.Lang,
+				Name: nt.Name,
+			}); nErr != nil {
+				logger.Warn("failed to create attribute name translation in PlentyONE",
+					slog.Int64("attribute_plenty_id", result.ID),
+					slog.String("lang", nt.Lang),
+					slog.String("error", nErr.Error()),
+				)
+			}
+		}
+		if len(nameTranslations) > 0 {
+			logger.Debug("pushed attribute name translations",
+				slog.Int64("attribute_plenty_id", result.ID),
+				slog.Int("languages", len(nameTranslations)),
+			)
+		}
+	}
+
 	// Create attribute values.
 	if err := s.createAttributeValues(ctx, rc, logger, attr.ID, result.ID); err != nil {
 		// Attribute was created but values failed. Log the error but don't fail
@@ -179,8 +205,9 @@ func (s *AttributeStage) processAttribute(ctx context.Context, rc *RunContext, l
 }
 
 // createAttributeValues loads and creates all values for a given attribute.
-// Per the plan, we do NOT create entity_mappings for individual attribute values;
-// the variations stage will look them up via client.Attributes.ListValues.
+// Each value gets an entity mapping (type "attribute_value") so the variation
+// stage can resolve PlentyONE IDs. Value name translations are pushed after
+// each value is created.
 func (s *AttributeStage) createAttributeValues(ctx context.Context, rc *RunContext, logger *slog.Logger, localAttrID, plentyAttrID int64) error {
 	values, err := s.db.ListAttributeValuesByAttribute(ctx, localAttrID)
 	if err != nil {
@@ -192,30 +219,77 @@ func (s *AttributeStage) createAttributeValues(ctx context.Context, rc *RunConte
 	}
 
 	for _, val := range values {
-		_, err := s.client.Attributes.CreateValue(ctx, plentyAttrID, &plenty.CreateAttributeValueRequest{
-			BackendName: val.Name,
-			Position:    int(val.SortOrder),
-		})
-		if err != nil {
-			logger.Warn("failed to create attribute value in PlentyONE",
-				slog.Int64("attribute_plenty_id", plentyAttrID),
-				slog.String("value_name", val.Name),
-				slog.String("error", err.Error()),
+		// Check if this value already has a mapping (resume-safe).
+		valCheck, vcErr := ShouldProcess(ctx, s.db, rc.RunID, val.ID, string(domain.EntityAttributeValue))
+		if vcErr != nil {
+			logger.Warn("failed to check attribute value mapping",
+				slog.Int64("value_id", val.ID), slog.String("error", vcErr.Error()))
+		}
+		if vcErr == nil && !valCheck.NeedsProcessing {
+			logger.Debug("attribute value already created, skipping",
+				slog.Int64("local_id", val.ID),
+				slog.Int64("plenty_id", valCheck.ExistingID),
 			)
-			// Continue creating other values; don't stop on individual failure.
 			continue
 		}
 
+		result, cErr := s.client.Attributes.CreateValue(ctx, plentyAttrID, &plenty.CreateAttributeValueRequest{
+			BackendName: val.Name,
+			Position:    int(val.SortOrder),
+		})
+		if cErr != nil {
+			logger.Warn("failed to create attribute value in PlentyONE",
+				slog.Int64("attribute_plenty_id", plentyAttrID),
+				slog.String("value_name", val.Name),
+				slog.String("error", cErr.Error()),
+			)
+			continue
+		}
+
+		// Create entity mapping for this value so variations can resolve PlentyONE IDs.
+		_, _ = s.db.CreateEntityMapping(ctx, queries.CreateEntityMappingParams{
+			RunID:        rc.RunID,
+			LocalID:      val.ID,
+			PlentyID:     result.ID,
+			EntityType:   string(domain.EntityAttributeValue),
+			Stage:        string(domain.StageAttributes),
+			Status:       string(domain.StatusCreated),
+			ErrorMessage: sql.NullString{},
+		})
+
 		logger.Debug("created attribute value in PlentyONE",
+			slog.Int64("local_id", val.ID),
 			slog.Int64("attribute_plenty_id", plentyAttrID),
+			slog.Int64("value_plenty_id", result.ID),
 			slog.String("value_name", val.Name),
 		)
+
+		// Push multilingual value name translations.
+		valTranslations, vtErr := s.db.ListAttributeValueTranslations(ctx, val.ID)
+		if vtErr != nil {
+			logger.Warn("failed to load attribute value translations",
+				slog.Int64("value_id", val.ID), slog.String("error", vtErr.Error()))
+			continue
+		}
+		for _, vt := range valTranslations {
+			if _, vnErr := s.client.Attributes.CreateValueName(ctx, result.ID, &plenty.CreateAttributeValueNameRequest{
+				Lang: vt.Lang,
+				Name: vt.Name,
+			}); vnErr != nil {
+				logger.Warn("failed to create attribute value name translation in PlentyONE",
+					slog.Int64("value_plenty_id", result.ID),
+					slog.String("lang", vt.Lang),
+					slog.String("error", vnErr.Error()),
+				)
+			}
+		}
 	}
 
 	return nil
 }
 
-// processProperties loads all properties for the job and creates them in PlentyONE.
+// processProperties loads all properties for the job, creates a property group,
+// and creates each property in PlentyONE with multilingual names.
 func (s *AttributeStage) processProperties(ctx context.Context, rc *RunContext, logger *slog.Logger) error {
 	props, err := s.db.ListPropertiesByJob(ctx, rc.JobID)
 	if err != nil {
@@ -231,7 +305,64 @@ func (s *AttributeStage) processProperties(ctx context.Context, rc *RunContext, 
 		return nil
 	}
 
-	succeeded, failed := ProcessItems(ctx, props, s.cfg.Concurrency, func(ctx context.Context, prop queries.Property) error {
+	// Create property group in PlentyONE if one exists locally for this job.
+	var plentyGroupID int64
+	localGroup, gErr := s.db.GetPropertyGroupByJob(ctx, rc.JobID)
+	if gErr == nil {
+		// Check if group already has a mapping (resume-safe).
+		groupCheck, gcErr := ShouldProcess(ctx, s.db, rc.RunID, localGroup.ID, string(domain.EntityPropertyGroup))
+		if gcErr != nil {
+			logger.Warn("failed to check property group mapping", "error", gcErr)
+		} else if !groupCheck.NeedsProcessing {
+			plentyGroupID = groupCheck.ExistingID
+			logger.Debug("property group already created, reusing",
+				slog.Int64("plenty_group_id", plentyGroupID))
+		} else {
+			group, createErr := s.client.Properties.CreateGroup(ctx, &plenty.CreatePropertyGroupRequest{
+				Position: 0,
+			})
+			if createErr != nil {
+				logger.Warn("failed to create property group in PlentyONE", "error", createErr)
+			} else {
+				plentyGroupID = group.ID
+
+				// Create entity mapping for the group.
+				_, _ = s.db.CreateEntityMapping(ctx, queries.CreateEntityMappingParams{
+					RunID:        rc.RunID,
+					LocalID:      localGroup.ID,
+					PlentyID:     plentyGroupID,
+					EntityType:   string(domain.EntityPropertyGroup),
+					Stage:        string(domain.StageAttributes),
+					Status:       string(domain.StatusCreated),
+					ErrorMessage: sql.NullString{},
+				})
+
+				// Create group names from stored translations.
+				groupTranslations, gtErr := s.db.ListPropertyGroupTranslations(ctx, localGroup.ID)
+				if gtErr != nil {
+					logger.Warn("failed to load property group translations", "error", gtErr)
+				} else {
+					for _, gt := range groupTranslations {
+						_, _ = s.client.Properties.CreateGroupName(ctx, &plenty.CreatePropertyGroupNameRequest{
+							PropertyGroupID: plentyGroupID,
+							Lang:            gt.Lang,
+							Name:            gt.Name,
+						})
+					}
+				}
+
+				logger.Info("created property group in PlentyONE",
+					slog.Int64("plenty_group_id", plentyGroupID),
+					slog.String("name", localGroup.Name),
+				)
+			}
+		}
+	}
+
+	// Store group ID in RunContext for property processing.
+	rc.PropertyGroupID = plentyGroupID
+
+	succeeded, failed := ProcessItems(ctx, props, s.cfg.Concurrency, func(ctx context.Context, prop queries.ListPropertiesByJobRow) error {
 		return s.processProperty(ctx, rc, logger, prop)
 	})
 
@@ -245,7 +376,7 @@ func (s *AttributeStage) processProperties(ctx context.Context, rc *RunContext, 
 
 // processProperty handles a single property: check resume state, create pending
 // mapping, call PlentyONE API, update mapping status.
-func (s *AttributeStage) processProperty(ctx context.Context, rc *RunContext, logger *slog.Logger, prop queries.Property) error {
+func (s *AttributeStage) processProperty(ctx context.Context, rc *RunContext, logger *slog.Logger, prop queries.ListPropertiesByJobRow) error {
 	check, err := ShouldProcess(ctx, s.db, rc.RunID, prop.ID, string(domain.EntityProperty))
 	if err != nil {
 		return fmt.Errorf("checking property %d: %w", prop.ID, err)
@@ -285,16 +416,23 @@ func (s *AttributeStage) processProperty(ctx context.Context, rc *RunContext, lo
 		}
 	}
 
+	// Build multilingual names from stored translations.
+	names := []plenty.PropertyName{{Lang: "en", Name: prop.Name}}
+	nameTranslations, ntErr := s.db.ListPropertyNameTranslations(ctx, prop.ID)
+	if ntErr != nil {
+		logger.Warn("failed to load property name translations, using English only",
+			slog.Int64("property_id", prop.ID), slog.String("error", ntErr.Error()))
+	} else {
+		for _, nt := range nameTranslations {
+			names = append(names, plenty.PropertyName{Lang: nt.Lang, Name: nt.Name})
+		}
+	}
+
 	// Create property in PlentyONE.
 	result, err := s.client.Properties.Create(ctx, &plenty.CreatePropertyRequest{
 		Cast:     prop.PropertyType,
 		Position: 0,
-		Names: []plenty.PropertyName{
-			{
-				Lang: "en",
-				Name: prop.Name,
-			},
-		},
+		Names:    names,
 	})
 	if err != nil {
 		_ = s.db.UpdateMappingStatus(ctx, queries.UpdateMappingStatusParams{
@@ -325,7 +463,87 @@ func (s *AttributeStage) processProperty(ctx context.Context, rc *RunContext, lo
 		slog.Int64("local_id", prop.ID),
 		slog.Int64("plenty_id", result.ID),
 		slog.String("name", prop.Name),
+		slog.Int("languages", len(names)),
 	)
+
+	// Attach property to group if one exists.
+	if rc.PropertyGroupID > 0 {
+		if err := s.client.Properties.AttachPropertyToGroup(ctx, rc.PropertyGroupID, result.ID); err != nil {
+			logger.Warn("failed to attach property to group",
+				slog.Int64("property_plenty_id", result.ID),
+				slog.Int64("group_plenty_id", rc.PropertyGroupID),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
+
+	// For selection-type properties, create selection options from stored values.
+	if prop.PropertyType == "selection" {
+		if err := s.createPropertySelections(ctx, logger, prop.ID, result.ID); err != nil {
+			logger.Warn("failed to create some property selections",
+				slog.Int64("property_local_id", prop.ID),
+				slog.Int64("property_plenty_id", result.ID),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
+
+	return nil
+}
+
+// createPropertySelections loads all distinct values for a selection property
+// from variation_properties and creates corresponding selection options in PlentyONE.
+func (s *AttributeStage) createPropertySelections(ctx context.Context, logger *slog.Logger, localPropID, plentyPropID int64) error {
+	values, err := s.db.ListDistinctPropertyValues(ctx, localPropID)
+	if err != nil {
+		return fmt.Errorf("loading distinct property values for property %d: %w", localPropID, err)
+	}
+
+	if len(values) == 0 {
+		return nil
+	}
+
+	for _, val := range values {
+		if !val.Valid || val.String == "" {
+			continue
+		}
+
+		// Build multilingual names for this selection option.
+		selNames := []plenty.PropertyName{{Lang: "en", Name: val.String}}
+		optTranslations, otErr := s.db.ListPropertyOptionTranslations(ctx, queries.ListPropertyOptionTranslationsParams{
+			PropertyID: localPropID,
+			OptionKey:  val.String,
+		})
+		if otErr != nil {
+			logger.Warn("failed to load option translations",
+				slog.Int64("property_id", localPropID),
+				slog.String("option", val.String),
+				slog.String("error", otErr.Error()),
+			)
+		} else {
+			for _, ot := range optTranslations {
+				selNames = append(selNames, plenty.PropertyName{Lang: ot.Lang, Name: ot.Name})
+			}
+		}
+
+		_, err := s.client.Properties.CreateSelection(ctx, plentyPropID, &plenty.CreatePropertySelectionRequest{
+			Names: selNames,
+		})
+		if err != nil {
+			logger.Warn("failed to create property selection in PlentyONE",
+				slog.Int64("property_plenty_id", plentyPropID),
+				slog.String("value", val.String),
+				slog.String("error", err.Error()),
+			)
+			continue
+		}
+
+		logger.Debug("created property selection in PlentyONE",
+			slog.Int64("property_plenty_id", plentyPropID),
+			slog.String("value", val.String),
+			slog.Int("languages", len(selNames)),
+		)
+	}
 
 	return nil
 }

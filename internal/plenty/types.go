@@ -76,6 +76,34 @@ type AttributeValue struct {
 	Position    int    `json:"position"`
 }
 
+// CreateAttributeNameRequest is the payload for POST /rest/items/attributes/{id}/names.
+type CreateAttributeNameRequest struct {
+	Lang string `json:"lang"`
+	Name string `json:"name"`
+}
+
+// AttributeName is the response struct for an attribute name translation.
+type AttributeName struct {
+	ID          int64  `json:"id"`
+	AttributeID int64  `json:"attributeId"`
+	Lang        string `json:"lang"`
+	Name        string `json:"name"`
+}
+
+// CreateAttributeValueNameRequest is the payload for POST /rest/items/attribute_values/{id}/names.
+type CreateAttributeValueNameRequest struct {
+	Lang string `json:"lang"`
+	Name string `json:"name"`
+}
+
+// AttributeValueName is the response struct for an attribute value name translation.
+type AttributeValueName struct {
+	ID      int64  `json:"id"`
+	ValueID int64  `json:"valueId"`
+	Lang    string `json:"lang"`
+	Name    string `json:"name"`
+}
+
 // ---------------------------------------------------------------------------
 // Property types
 // ---------------------------------------------------------------------------
@@ -124,6 +152,36 @@ type PropertyRelation struct {
 	ID                       int64  `json:"id"`
 	RelationTargetID         int64  `json:"relationTargetId"`
 	RelationTypeIdentifier   string `json:"relationTypeIdentifier"`
+}
+
+// ---------------------------------------------------------------------------
+// Property Group types
+// ---------------------------------------------------------------------------
+
+// CreatePropertyGroupRequest is the payload for POST /rest/properties/groups.
+type CreatePropertyGroupRequest struct {
+	Position int `json:"position"`
+}
+
+// PropertyGroup is the response struct from the property groups API.
+type PropertyGroup struct {
+	ID       int64 `json:"id"`
+	Position int   `json:"position"`
+}
+
+// CreatePropertyGroupNameRequest is the payload for POST /rest/properties/groups/names.
+type CreatePropertyGroupNameRequest struct {
+	PropertyGroupID int64  `json:"propertyGroupId"`
+	Lang            string `json:"lang"`
+	Name            string `json:"name"`
+}
+
+// PropertyGroupName is the response struct for a property group name.
+type PropertyGroupName struct {
+	ID              int64  `json:"id"`
+	PropertyGroupID int64  `json:"propertyGroupId"`
+	Lang            string `json:"lang"`
+	Name            string `json:"name"`
 }
 
 // ---------------------------------------------------------------------------
@@ -182,9 +240,18 @@ type Variation struct {
 
 // UpdateVariationRequest is the payload for PUT /rest/items/{itemId}/variations/{variationId}.
 type UpdateVariationRequest struct {
-	Name   string `json:"name,omitempty"`
-	Number string `json:"number,omitempty"`
-	IsActive *bool `json:"isActive,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Number     string `json:"number,omitempty"`
+	IsActive   *bool  `json:"isActive,omitempty"`
+	ExternalID string `json:"externalId,omitempty"`    // External variation ID
+	Model      string `json:"model,omitempty"`         // Product model identifier
+	Position   *int   `json:"position,omitempty"`      // Display ordering
+	WeightG    *int   `json:"weightG,omitempty"`       // Gross weight in grams
+	WeightNetG *int   `json:"weightNetG,omitempty"`    // Net weight in grams
+	LengthMM   *int   `json:"lengthMM,omitempty"`      // Length in millimeters
+	WidthMM    *int   `json:"widthMM,omitempty"`        // Width in millimeters
+	HeightMM   *int   `json:"heightMM,omitempty"`       // Height in millimeters
+	UnitID     *int64 `json:"unitId,omitempty"`          // PlentyONE unit ID
 }
 
 // ---------------------------------------------------------------------------
@@ -195,9 +262,26 @@ type UpdateVariationRequest struct {
 // Each shop needs at least one sales price config (e.g., "Default price").
 // GET /rest/items/sales_prices
 type SalesPriceConfig struct {
-	ID       int64  `json:"id"`
-	Position int    `json:"position"`
-	Type     string `json:"type"` // "default", "rrp", "specialOffer"
+	ID                   int64            `json:"id"`
+	Position             int              `json:"position"`
+	Type                 string           `json:"type"` // "default", "rrp", "specialOffer"
+	MinimumOrderQuantity float64          `json:"minimumOrderQuantity,omitempty"`
+	Names                []SalesPriceName `json:"names,omitempty"`
+}
+
+// CreateSalesPriceConfigRequest is the payload for POST /rest/items/sales_prices.
+type CreateSalesPriceConfigRequest struct {
+	Type                 string           `json:"type"`                           // "default", "rrp", "specialOffer"
+	Position             int              `json:"position,omitempty"`
+	MinimumOrderQuantity float64          `json:"minimumOrderQuantity,omitempty"` // For graduated pricing tiers
+	Names                []SalesPriceName `json:"names,omitempty"`
+}
+
+// SalesPriceName holds a multilingual name for a sales price config.
+type SalesPriceName struct {
+	Lang         string `json:"lang"`
+	NameInternal string `json:"nameInternal,omitempty"`
+	NameExternal string `json:"nameExternal,omitempty"`
 }
 
 // VariationSalesPriceRequest links a price value to a variation via a sales price config.
@@ -268,4 +352,49 @@ type Description struct {
 	TechnicalData    string `json:"technicalData,omitempty"`
 	MetaDescription  string `json:"metaDescription,omitempty"`
 	URLContent       string `json:"urlContent,omitempty"`
+}
+
+// ---------------------------------------------------------------------------
+// Unit types
+// ---------------------------------------------------------------------------
+
+// Unit represents a unit of measurement in PlentyONE.
+// GET /rest/items/units
+type Unit struct {
+	ID                int64      `json:"id"`
+	UnitOfMeasurement string     `json:"unitOfMeasurement"` // ISO code: "C62" (piece), "KGM" (kg), "GRM" (g), "LTR" (liter), "MTR" (meter), "MLT" (ml)
+	IsDecimalPlaces   bool       `json:"isDecimalPlaces"`
+	Names             []UnitName `json:"names,omitempty"`
+}
+
+// UnitName holds one language's display name for a unit.
+type UnitName struct {
+	Lang string `json:"lang"`
+	Name string `json:"name"`
+}
+
+// ---------------------------------------------------------------------------
+// Barcode types
+// ---------------------------------------------------------------------------
+
+// BarcodeConfig represents a barcode configuration in PlentyONE.
+// GET /rest/items/barcodes
+type BarcodeConfig struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"` // "GTIN_13", "GTIN_128", "UPC", "ISBN"
+}
+
+// CreateVariationBarcodeRequest links a barcode code to a variation.
+// POST /rest/items/{itemId}/variations/{variationId}/variation_barcodes
+type CreateVariationBarcodeRequest struct {
+	BarcodeID int64  `json:"barcodeId"`
+	Code      string `json:"code"`
+}
+
+// VariationBarcode is the response for a variation barcode.
+type VariationBarcode struct {
+	BarcodeID   int64  `json:"barcodeId"`
+	Code        string `json:"code"`
+	VariationID int64  `json:"variationId"`
 }

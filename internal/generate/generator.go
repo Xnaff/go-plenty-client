@@ -26,6 +26,15 @@ type Generator interface {
 	Name() string
 }
 
+// BatchGenerator is an optional interface for providers that support
+// generating multiple products with all languages in a single API call.
+// This reduces API calls from O(N*L) to O(1) for N products and L languages.
+type BatchGenerator interface {
+	// GenerateBatch generates N products with all translations and pricing
+	// data in a single API call.
+	GenerateBatch(ctx context.Context, req BatchRequest) (*BatchProductResult, error)
+}
+
 // ImageGenerator is the interface for AI image generation providers.
 // This is separate from Generator because not all providers support image generation.
 type ImageGenerator interface {

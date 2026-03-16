@@ -6,15 +6,27 @@ package queries
 
 import (
 	"context"
+	"database/sql"
 )
 
 type Querier interface {
 	CountFailedByRun(ctx context.Context, runID int64) (int64, error)
 	CountMappingsByStatus(ctx context.Context, runID int64) ([]CountMappingsByStatusRow, error)
+	// Attributes (CRUD)
+	CreateAttribute(ctx context.Context, arg CreateAttributeParams) (int64, error)
+	// Attribute Name Translations
+	CreateAttributeNameTranslation(ctx context.Context, arg CreateAttributeNameTranslationParams) (int64, error)
+	CreateAttributeValue(ctx context.Context, arg CreateAttributeValueParams) (int64, error)
+	// Attribute Value Translations
+	CreateAttributeValueTranslation(ctx context.Context, arg CreateAttributeValueTranslationParams) (int64, error)
 	// Categories
 	CreateCategory(ctx context.Context, arg CreateCategoryParams) (int64, error)
+	// Category Translations
+	CreateCategoryTranslation(ctx context.Context, arg CreateCategoryTranslationParams) (int64, error)
 	// Entity Mappings
 	CreateEntityMapping(ctx context.Context, arg CreateEntityMappingParams) (int64, error)
+	// Graduated Prices
+	CreateGraduatedPrice(ctx context.Context, arg CreateGraduatedPriceParams) (int64, error)
 	// Images
 	CreateImage(ctx context.Context, arg CreateImageParams) (int64, error)
 	// Jobs
@@ -24,6 +36,16 @@ type Querier interface {
 	// Products
 	CreateProduct(ctx context.Context, arg CreateProductParams) (int64, error)
 	CreateProductCategory(ctx context.Context, arg CreateProductCategoryParams) error
+	// Properties
+	CreateProperty(ctx context.Context, arg CreatePropertyParams) (int64, error)
+	// Property Groups
+	CreatePropertyGroup(ctx context.Context, arg CreatePropertyGroupParams) (int64, error)
+	// Property Group Translations
+	CreatePropertyGroupTranslation(ctx context.Context, arg CreatePropertyGroupTranslationParams) (int64, error)
+	// Property Name Translations
+	CreatePropertyNameTranslation(ctx context.Context, arg CreatePropertyNameTranslationParams) (int64, error)
+	// Property Option Translations
+	CreatePropertyOptionTranslation(ctx context.Context, arg CreatePropertyOptionTranslationParams) (int64, error)
 	// Quality Scores
 	CreateQualityScore(ctx context.Context, arg CreateQualityScoreParams) (int64, error)
 	// Stage States
@@ -32,8 +54,16 @@ type Querier interface {
 	CreateText(ctx context.Context, arg CreateTextParams) (int64, error)
 	// Variations
 	CreateVariation(ctx context.Context, arg CreateVariationParams) (int64, error)
+	// Variation-Attribute Links
+	CreateVariationAttribute(ctx context.Context, arg CreateVariationAttributeParams) error
+	// Variation Properties
+	CreateVariationProperty(ctx context.Context, arg CreateVariationPropertyParams) (int64, error)
 	DeleteExpiredEnrichmentCache(ctx context.Context) error
 	DeleteOAuthToken(ctx context.Context, shopUrl string) error
+	GetAttributeByJobAndName(ctx context.Context, arg GetAttributeByJobAndNameParams) (Attribute, error)
+	GetAttributeValueByAttrAndName(ctx context.Context, arg GetAttributeValueByAttrAndNameParams) (AttributeValue, error)
+	GetCategory(ctx context.Context, id int64) (Category, error)
+	GetCategoryByJobAndName(ctx context.Context, arg GetCategoryByJobAndNameParams) (Category, error)
 	// Enrichment Cache
 	GetEnrichmentCache(ctx context.Context, arg GetEnrichmentCacheParams) (EnrichmentCache, error)
 	GetEntityMapping(ctx context.Context, arg GetEntityMappingParams) (EntityMapping, error)
@@ -44,33 +74,52 @@ type Querier interface {
 	GetPipelineRun(ctx context.Context, id int64) (PipelineRun, error)
 	GetPipelineRunByJobLatest(ctx context.Context, jobID int64) (PipelineRun, error)
 	GetProduct(ctx context.Context, id int64) (Product, error)
+	GetPropertyByJobAndName(ctx context.Context, arg GetPropertyByJobAndNameParams) (GetPropertyByJobAndNameRow, error)
+	GetPropertyGroupByJob(ctx context.Context, jobID int64) (PropertyGroup, error)
 	GetQualityScoreByProduct(ctx context.Context, productID int64) (QualityScore, error)
 	GetStageState(ctx context.Context, arg GetStageStateParams) (StageState, error)
 	GetTextByProductFieldLang(ctx context.Context, arg GetTextByProductFieldLangParams) (Text, error)
+	ListAllPropertyOptionTranslations(ctx context.Context, propertyID int64) ([]PropertyOptionTranslation, error)
+	ListAttributeNameTranslations(ctx context.Context, attributeID int64) ([]AttributeNameTranslation, error)
+	ListAttributeValueTranslations(ctx context.Context, attributeValueID int64) ([]AttributeValueTranslation, error)
 	ListAttributeValuesByAttribute(ctx context.Context, attributeID int64) ([]AttributeValue, error)
 	ListAttributesByJob(ctx context.Context, jobID int64) ([]Attribute, error)
 	ListCategoriesByJob(ctx context.Context, jobID int64) ([]Category, error)
 	ListCategoryIDsByProduct(ctx context.Context, productID int64) ([]int64, error)
+	ListCategoryTranslations(ctx context.Context, categoryID int64) ([]CategoryTranslation, error)
 	ListCreatedMappingsByRunAndType(ctx context.Context, arg ListCreatedMappingsByRunAndTypeParams) ([]EntityMapping, error)
+	ListDistinctPropertyValues(ctx context.Context, propertyID int64) ([]sql.NullString, error)
 	ListEntityMappingsByRun(ctx context.Context, arg ListEntityMappingsByRunParams) ([]EntityMapping, error)
 	ListFailedMappingsByRun(ctx context.Context, runID int64) ([]EntityMapping, error)
 	ListFailedQualityScoresByJob(ctx context.Context, jobID int64) ([]QualityScore, error)
+	ListGraduatedPricesByVariation(ctx context.Context, variationID int64) ([]VariationGraduatedPrice, error)
 	ListImagesByProduct(ctx context.Context, productID int64) ([]Image, error)
 	ListOrphanedMappingsByRun(ctx context.Context, runID int64) ([]EntityMapping, error)
 	ListPipelineRunsByJob(ctx context.Context, jobID int64) ([]PipelineRun, error)
 	ListProductsByJob(ctx context.Context, jobID int64) ([]Product, error)
 	ListProductsByJobAndStatus(ctx context.Context, arg ListProductsByJobAndStatusParams) ([]Product, error)
-	ListPropertiesByJob(ctx context.Context, jobID int64) ([]Property, error)
+	ListPropertiesByJob(ctx context.Context, jobID int64) ([]ListPropertiesByJobRow, error)
+	ListPropertyGroupTranslations(ctx context.Context, propertyGroupID int64) ([]PropertyGroupTranslation, error)
+	ListPropertyNameTranslations(ctx context.Context, propertyID int64) ([]PropertyNameTranslation, error)
+	ListPropertyOptionTranslations(ctx context.Context, arg ListPropertyOptionTranslationsParams) ([]PropertyOptionTranslation, error)
 	ListQualityScoresByJob(ctx context.Context, jobID int64) ([]QualityScore, error)
 	ListRecentJobs(ctx context.Context, limit int32) ([]Job, error)
 	ListStageStatesByRun(ctx context.Context, runID int64) ([]StageState, error)
 	ListTextsByProduct(ctx context.Context, productID int64) ([]Text, error)
+	ListVariationAttributesByVariation(ctx context.Context, variationID int64) ([]VariationAttribute, error)
+	ListVariationPropertiesByVariation(ctx context.Context, variationID int64) ([]ListVariationPropertiesByVariationRow, error)
 	ListVariationsByProduct(ctx context.Context, productID int64) ([]Variation, error)
+	// Variations Without Properties (for backfill)
+	ListVariationsWithoutPropertiesByJob(ctx context.Context, jobID int64) ([]ListVariationsWithoutPropertiesByJobRow, error)
+	// Category Registry (cross-job reuse)
+	LookupCategoryRegistry(ctx context.Context, arg LookupCategoryRegistryParams) (CategoryRegistry, error)
+	RegisterCategory(ctx context.Context, arg RegisterCategoryParams) (int64, error)
 	ResetFailedMappingsForRetry(ctx context.Context, runID int64) error
 	UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams) error
 	UpdateMappingStatus(ctx context.Context, arg UpdateMappingStatusParams) error
 	UpdatePipelineRunCompleted(ctx context.Context, arg UpdatePipelineRunCompletedParams) error
 	UpdatePipelineRunStatus(ctx context.Context, arg UpdatePipelineRunStatusParams) error
+	UpdatePropertyGroupID(ctx context.Context, arg UpdatePropertyGroupIDParams) error
 	UpdateStageState(ctx context.Context, arg UpdateStageStateParams) error
 	UpdateStageStateTimestamps(ctx context.Context, arg UpdateStageStateTimestampsParams) error
 	UpsertEnrichmentCache(ctx context.Context, arg UpsertEnrichmentCacheParams) error
