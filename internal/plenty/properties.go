@@ -50,6 +50,55 @@ func (s *PropertyService) CreateRelation(ctx context.Context, req *PropertyRelat
 	return doJSON[PropertyRelation](ctx, s.client, http.MethodPost, path, req)
 }
 
+// CreateGroup creates a new property group in PlentyONE.
+// POST /rest/properties/groups
+func (s *PropertyService) CreateGroup(ctx context.Context, req *CreatePropertyGroupRequest) (*PropertyGroup, error) {
+	path := "/rest/properties/groups"
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodPost, path, req)
+		return &PropertyGroup{ID: -1}, nil
+	}
+
+	return doJSON[PropertyGroup](ctx, s.client, http.MethodPost, path, req)
+}
+
+// CreateGroupName creates a translated name for a property group.
+// POST /rest/properties/groups/names
+func (s *PropertyService) CreateGroupName(ctx context.Context, req *CreatePropertyGroupNameRequest) (*PropertyGroupName, error) {
+	path := "/rest/properties/groups/names"
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodPost, path, req)
+		return &PropertyGroupName{ID: -1}, nil
+	}
+
+	return doJSON[PropertyGroupName](ctx, s.client, http.MethodPost, path, req)
+}
+
+// AttachPropertyToGroup links a property to a property group.
+// POST /rest/properties/groups/{groupId}/properties/{propertyId}
+func (s *PropertyService) AttachPropertyToGroup(ctx context.Context, groupID, propertyID int64) error {
+	path := fmt.Sprintf("/rest/properties/groups/%d/properties/%d", groupID, propertyID)
+
+	if s.client.dryRun {
+		dryRunLog(s.client.logger, http.MethodPost, path, nil)
+		return nil
+	}
+
+	resp, err := s.client.doRequest(ctx, http.MethodPost, path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return parseErrorResponse(resp)
+	}
+
+	return nil
+}
+
 // Delete removes a property by ID.
 // DELETE /rest/properties/{id}
 func (s *PropertyService) Delete(ctx context.Context, id int64) error {

@@ -471,6 +471,112 @@ func TestWarningsOnly(t *testing.T) {
 	}
 }
 
+func TestIsCJKLanguage(t *testing.T) {
+	tests := []struct {
+		lang string
+		want bool
+	}{
+		{"zh", true},
+		{"ja", true},
+		{"ko", true},
+		{"en", false},
+		{"de", false},
+		{"fr", false},
+		{"es", false},
+		{"it", false},
+		{"pt", false},
+		{"ru", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.lang, func(t *testing.T) {
+			if got := isCJKLanguage(tt.lang); got != tt.want {
+				t.Errorf("isCJKLanguage(%q) = %v, want %v", tt.lang, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEffectiveMinLength(t *testing.T) {
+	tests := []struct {
+		name    string
+		minLen  int
+		lang    string
+		want    int
+	}{
+		{"english_50", 50, "en", 50},
+		{"chinese_50", 50, "zh", 25},
+		{"japanese_50", 50, "ja", 25},
+		{"korean_50", 50, "ko", 25},
+		{"chinese_10", 10, "zh", 5},
+		{"chinese_3", 3, "zh", 1},
+		{"chinese_1", 1, "zh", 1},
+		{"chinese_0", 0, "zh", 0},
+		{"english_0", 0, "en", 0},
+		{"german_50", 50, "de", 50},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := effectiveMinLength(tt.minLen, tt.lang); got != tt.want {
+				t.Errorf("effectiveMinLength(%d, %q) = %d, want %d", tt.minLen, tt.lang, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateProductTexts_CJKMinLengthScaling(t *testing.T) {
+	v := NewValidator()
+
+	// Chinese metaDescription with 30 characters (above CJK threshold of 25, below Latin threshold of 50).
+	chineseTexts := &generate.ProductTexts{
+		Name:             "高级无线蓝牙耳机专业版",                                                 // 11 chars, min=1 (3/2)
+		ShortDescription: "这款高级无线耳机具有主动降噪功能",                                          // 14 chars, min=5 (10/2)
+		Description:      "<p>这款高级无线耳机采用先进技术，提供卓越音质和主动降噪功能。三十小时续航，舒适佩戴。</p>", // well above min
+		MetaDescription:  "购买最佳高级无线蓝牙耳机，主动降噪，三十小时续航，免费送货，高品质保证。",               // 31 chars, min=25 (50/2) — passes
+		URLContent:       "premium-wireless-headphones-zh",
+		PreviewText:      "发现我们的高级无线耳机产品。",
+	}
+
+	_, errs := v.ValidateProductTexts(chineseTexts, "zh")
+	for _, e := range errs {
+		if e.Code == "too_short" {
+			t.Errorf("unexpected too_short error for CJK text: %s (field=%s)", e.Message, e.Field)
+		}
+	}
+
+	// Same text would fail with English language code (50 char minimum applies).
+	_, errs = v.ValidateProductTexts(chineseTexts, "en")
+	foundMetaShort := false
+	for _, e := range errs {
+		if e.Field == "metaDescription" && e.Code == "too_short" {
+			foundMetaShort = true
+		}
+	}
+	if !foundMetaShort {
+		t.Error("expected too_short error for Chinese metaDescription when validated as English (50 char minimum)")
+	}
+}
+
+func TestValidateProductTexts_CJKStillRejectsTooShort(t *testing.T) {
+	v := NewValidator()
+
+	// Even with CJK scaling, very short text should still fail.
+	texts := validProductTexts()
+	texts.MetaDescription = "短描述" // 3 chars, below even CJK min of 25
+
+	_, errs := v.ValidateProductTexts(texts, "zh")
+	found := false
+	for _, e := range errs {
+		if e.Field == "metaDescription" && e.Code == "too_short" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected too_short error for very short CJK metaDescription (3 chars, min 25)")
+	}
+}
+
 func TestSanitizeURLSlug(t *testing.T) {
 	tests := []struct {
 		input string

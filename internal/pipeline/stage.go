@@ -28,6 +28,11 @@ type RunContext struct {
 	JobID  int64
 	DryRun bool
 	Logger *slog.Logger
+
+	// PropertyGroupID is set by the attributes stage after creating the
+	// property group in PlentyONE. Individual properties are attached to
+	// this group during their creation.
+	PropertyGroupID int64
 }
 
 // StageOrder defines the strict execution order for the 6-stage pipeline.

@@ -23,7 +23,9 @@ type Config struct {
 
 // ImageConfig holds AI image generation settings.
 type ImageConfig struct {
-	Provider   string `mapstructure:"provider"`    // AI image provider: openai, mock
+	Provider   string `mapstructure:"provider"`    // AI image provider: openai, gemini, mock
+	APIKey     string `mapstructure:"api_key"`     // Separate API key (falls back to ai.api_key)
+	BaseURL    string `mapstructure:"base_url"`    // Custom API base URL
 	Model      string `mapstructure:"model"`       // gpt-image-1, gpt-image-1-mini
 	Quality    string `mapstructure:"quality"`      // low, medium, high
 	Size       string `mapstructure:"size"`         // 1024x1024, 1792x1024, 1024x1792
@@ -63,19 +65,35 @@ type QualityConfig struct {
 
 // APIConfig holds PlentyONE REST API connection settings.
 type APIConfig struct {
-	BaseURL   string `mapstructure:"base_url"`
+	PlentyID  int    `mapstructure:"plenty_id"`  // PlentyONE system ID (builds base URL automatically)
+	BaseURL   string `mapstructure:"base_url"`   // Override: full base URL (if set, plenty_id is ignored)
 	Username  string `mapstructure:"username"`
 	Password  string `mapstructure:"password"`
 	RateLimit int    `mapstructure:"rate_limit"`
 	Timeout   int    `mapstructure:"timeout"` // seconds
 }
 
+// EffectiveBaseURL returns the API base URL. If BaseURL is set explicitly, it is
+// used as-is. Otherwise, the URL is constructed from PlentyID as
+// https://p{PlentyID}.my.plentysystems.com.
+func (a APIConfig) EffectiveBaseURL() string {
+	if a.BaseURL != "" {
+		return a.BaseURL
+	}
+	if a.PlentyID > 0 {
+		return fmt.Sprintf("https://p%d.my.plentysystems.com", a.PlentyID)
+	}
+	return ""
+}
+
 // AIConfig holds AI generation provider settings.
 type AIConfig struct {
-	Provider  string   `mapstructure:"provider"`  // AI provider: mock, openai
-	APIKey    string   `mapstructure:"api_key"`   // API key (use env var PLENTYONE_AI_API_KEY)
-	Model     string   `mapstructure:"model"`     // Model name (provider-specific)
-	Languages []string `mapstructure:"languages"` // Languages to generate text in
+	Provider  string   `mapstructure:"provider"`   // AI provider: mock, openai, gemini
+	APIKey    string   `mapstructure:"api_key"`    // API key (use env var PLENTYONE_AI_API_KEY)
+	BaseURL   string   `mapstructure:"base_url"`   // Custom API base URL (e.g. Gemini-compatible endpoint)
+	Model     string   `mapstructure:"model"`      // Model name (provider-specific)
+	Languages []string `mapstructure:"languages"`  // Languages to generate text in
+	BatchSize int      `mapstructure:"batch_size"` // Products per batch API call (default 5)
 }
 
 // ServerConfig holds HTTP server settings.
@@ -96,7 +114,7 @@ type DatabaseConfig struct {
 
 // DatabaseDSN returns a MySQL DSN string for database/sql.
 func (d DatabaseConfig) DatabaseDSN() string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci&multiStatements=true",
 		d.User, d.Password, d.Host, d.Port, d.Name)
 }
 
@@ -132,6 +150,8 @@ func LoadConfig(cfgFile string) (*Config, error) {
 	viper.SetDefault("server.port", 8080)
 	viper.SetDefault("database.host", "localhost")
 	viper.SetDefault("database.port", 3306)
+	viper.SetDefault("database.user", "")
+	viper.SetDefault("database.password", "")
 	viper.SetDefault("database.name", "plentyone")
 	viper.SetDefault("database.max_conns", 25)
 	viper.SetDefault("log.level", "info")
@@ -140,14 +160,20 @@ func LoadConfig(cfgFile string) (*Config, error) {
 	viper.SetDefault("pipeline.batch_size", 50)
 	viper.SetDefault("pipeline.rate_limit_per_sec", 2.0)
 	viper.SetDefault("ai.provider", "mock")
+	viper.SetDefault("ai.api_key", "")
+	viper.SetDefault("ai.base_url", "")
 	viper.SetDefault("ai.model", "gpt-4o-mini")
 	viper.SetDefault("ai.languages", []string{"en", "de", "es", "fr", "it"})
+	viper.SetDefault("ai.batch_size", 5)
+	viper.SetDefault("api.plenty_id", 0)
 	viper.SetDefault("api.base_url", "")
 	viper.SetDefault("api.username", "")
 	viper.SetDefault("api.password", "")
 	viper.SetDefault("api.rate_limit", 40)
 	viper.SetDefault("api.timeout", 60)
 	viper.SetDefault("images.provider", "mock")
+	viper.SetDefault("images.api_key", "")
+	viper.SetDefault("images.base_url", "")
 	viper.SetDefault("images.model", "gpt-image-1")
 	viper.SetDefault("images.quality", "medium")
 	viper.SetDefault("images.size", "1024x1024")
@@ -159,6 +185,9 @@ func LoadConfig(cfgFile string) (*Config, error) {
 	viper.SetDefault("stock_photos.min_width", 800)
 	viper.SetDefault("stock_photos.min_height", 600)
 	viper.SetDefault("stock_photos.orientation", "landscape")
+	viper.SetDefault("stock_photos.unsplash_key", "")
+	viper.SetDefault("stock_photos.pexels_key", "")
+	viper.SetDefault("stock_photos.pixabay_key", "")
 	viper.SetDefault("enrichment.enabled", false)
 	viper.SetDefault("enrichment.sources", []string{"openfoodfacts", "wikidata"})
 	viper.SetDefault("enrichment.cache_ttl", "24h")

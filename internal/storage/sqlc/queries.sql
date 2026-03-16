@@ -125,14 +125,19 @@ FROM categories
 WHERE job_id = ?
 ORDER BY level, sort_order;
 
+-- name: GetCategory :one
+SELECT id, job_id, parent_id, name, level, sort_order, status, created_at
+FROM categories
+WHERE id = ?;
+
 -- Variations
 
 -- name: CreateVariation :execlastid
-INSERT INTO variations (product_id, name, sku, price, currency, weight, weight_unit, barcode, status)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO variations (product_id, name, sku, price, rrp, b2b_price, b2b_rrp, currency, weight, weight_unit, sales_unit, length_mm, width_mm, height_mm, barcode, model, status)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListVariationsByProduct :many
-SELECT id, product_id, name, sku, price, currency, weight, weight_unit, barcode, status, created_at
+SELECT id, product_id, name, sku, price, currency, weight, weight_unit, barcode, status, created_at, sales_unit, rrp, length_mm, width_mm, height_mm, b2b_price, b2b_rrp, model
 FROM variations
 WHERE product_id = ?
 ORDER BY created_at;
@@ -309,3 +314,201 @@ ON DUPLICATE KEY UPDATE
 -- name: DeleteExpiredEnrichmentCache :exec
 DELETE FROM enrichment_cache
 WHERE expires_at <= NOW();
+
+-- Properties
+
+-- name: CreateProperty :execlastid
+INSERT INTO properties (job_id, name, property_type, status)
+VALUES (?, ?, ?, ?);
+
+-- name: GetPropertyByJobAndName :one
+SELECT id, job_id, name, property_type, status, created_at
+FROM properties
+WHERE job_id = ? AND name = ?;
+
+-- Variation Properties
+
+-- name: CreateVariationProperty :execlastid
+INSERT INTO variation_properties (variation_id, property_id, value_text, value_int, value_float)
+VALUES (?, ?, ?, ?, ?);
+
+-- name: ListVariationPropertiesByVariation :many
+SELECT vp.id, vp.variation_id, vp.property_id, vp.value_text, vp.value_int, vp.value_float,
+       p.name as property_name, p.property_type
+FROM variation_properties vp
+JOIN properties p ON p.id = vp.property_id
+WHERE vp.variation_id = ?
+ORDER BY p.name;
+
+-- name: ListDistinctPropertyValues :many
+SELECT DISTINCT vp.value_text
+FROM variation_properties vp
+WHERE vp.property_id = ? AND vp.value_text IS NOT NULL
+ORDER BY vp.value_text;
+
+-- Variations Without Properties (for backfill)
+
+-- name: ListVariationsWithoutPropertiesByJob :many
+SELECT v.id as variation_id, v.product_id, v.name as variation_name,
+       p.name as product_name, p.product_type
+FROM variations v
+JOIN products p ON v.product_id = p.id
+WHERE p.job_id = ?
+AND NOT EXISTS (SELECT 1 FROM variation_properties vp WHERE vp.variation_id = v.id)
+ORDER BY v.id;
+
+-- Property Name Translations
+
+-- name: CreatePropertyNameTranslation :execlastid
+INSERT INTO property_name_translations (property_id, lang, name)
+VALUES (?, ?, ?);
+
+-- name: ListPropertyNameTranslations :many
+SELECT id, property_id, lang, name
+FROM property_name_translations
+WHERE property_id = ?
+ORDER BY lang;
+
+-- Property Option Translations
+
+-- name: CreatePropertyOptionTranslation :execlastid
+INSERT INTO property_option_translations (property_id, option_key, lang, name)
+VALUES (?, ?, ?, ?);
+
+-- name: ListPropertyOptionTranslations :many
+SELECT id, property_id, option_key, lang, name
+FROM property_option_translations
+WHERE property_id = ? AND option_key = ?
+ORDER BY lang;
+
+-- name: ListAllPropertyOptionTranslations :many
+SELECT id, property_id, option_key, lang, name
+FROM property_option_translations
+WHERE property_id = ?
+ORDER BY option_key, lang;
+
+-- Category Translations
+
+-- name: CreateCategoryTranslation :execlastid
+INSERT INTO category_translations (category_id, lang, name, description)
+VALUES (?, ?, ?, ?);
+
+-- name: ListCategoryTranslations :many
+SELECT id, category_id, lang, name, description
+FROM category_translations
+WHERE category_id = ?
+ORDER BY lang;
+
+-- Category Registry (cross-job reuse)
+
+-- name: LookupCategoryRegistry :one
+SELECT id, name, parent_name, plenty_id, created_at
+FROM category_registry
+WHERE name = ? AND parent_name = ?;
+
+-- name: RegisterCategory :execlastid
+INSERT INTO category_registry (name, parent_name, plenty_id)
+VALUES (?, ?, ?);
+
+-- name: GetCategoryByJobAndName :one
+SELECT id, job_id, parent_id, name, level, sort_order, status, created_at
+FROM categories
+WHERE job_id = ? AND name = ?
+LIMIT 1;
+
+-- Property Groups
+
+-- name: CreatePropertyGroup :execlastid
+INSERT INTO property_groups (job_id, name, status)
+VALUES (?, ?, ?);
+
+-- name: GetPropertyGroupByJob :one
+SELECT id, job_id, name, status, created_at
+FROM property_groups
+WHERE job_id = ?
+LIMIT 1;
+
+-- name: UpdatePropertyGroupID :exec
+UPDATE properties SET property_group_id = ? WHERE id = ?;
+
+-- Property Group Translations
+
+-- name: CreatePropertyGroupTranslation :execlastid
+INSERT INTO property_group_translations (property_group_id, lang, name)
+VALUES (?, ?, ?);
+
+-- name: ListPropertyGroupTranslations :many
+SELECT id, property_group_id, lang, name
+FROM property_group_translations
+WHERE property_group_id = ?
+ORDER BY lang;
+
+-- Graduated Prices
+
+-- name: CreateGraduatedPrice :execlastid
+INSERT INTO variation_graduated_prices (variation_id, minimum_quantity, price, rrp)
+VALUES (?, ?, ?, ?);
+
+-- name: ListGraduatedPricesByVariation :many
+SELECT id, variation_id, minimum_quantity, price, rrp
+FROM variation_graduated_prices
+WHERE variation_id = ?
+ORDER BY minimum_quantity;
+
+-- Attributes (CRUD)
+
+-- name: CreateAttribute :execlastid
+INSERT INTO attributes (job_id, name, attr_type, status)
+VALUES (?, ?, ?, ?);
+
+-- name: GetAttributeByJobAndName :one
+SELECT id, job_id, name, attr_type, status, created_at
+FROM attributes
+WHERE job_id = ? AND name = ?
+LIMIT 1;
+
+-- name: CreateAttributeValue :execlastid
+INSERT INTO attribute_values (attribute_id, name, sort_order)
+VALUES (?, ?, ?);
+
+-- name: GetAttributeValueByAttrAndName :one
+SELECT id, attribute_id, name, sort_order
+FROM attribute_values
+WHERE attribute_id = ? AND name = ?
+LIMIT 1;
+
+-- Variation-Attribute Links
+
+-- name: CreateVariationAttribute :exec
+INSERT INTO variation_attributes (variation_id, attribute_id, attribute_value_id)
+VALUES (?, ?, ?);
+
+-- name: ListVariationAttributesByVariation :many
+SELECT variation_id, attribute_id, attribute_value_id
+FROM variation_attributes
+WHERE variation_id = ?
+ORDER BY attribute_id;
+
+-- Attribute Name Translations
+
+-- name: CreateAttributeNameTranslation :execlastid
+INSERT INTO attribute_name_translations (attribute_id, lang, name)
+VALUES (?, ?, ?);
+
+-- name: ListAttributeNameTranslations :many
+SELECT id, attribute_id, lang, name
+FROM attribute_name_translations
+WHERE attribute_id = ?
+ORDER BY lang;
+
+-- Attribute Value Translations
+
+-- name: CreateAttributeValueTranslation :execlastid
+INSERT INTO attribute_value_translations (attribute_value_id, lang, name)
+VALUES (?, ?, ?);
+
+-- name: ListAttributeValueTranslations :many
+SELECT id, attribute_value_id, lang, name
+FROM attribute_value_translations
+WHERE attribute_value_id = ?
+ORDER BY lang;

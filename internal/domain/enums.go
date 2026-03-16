@@ -17,13 +17,15 @@ const (
 type EntityType string
 
 const (
-	EntityCategory  EntityType = "category"
-	EntityAttribute EntityType = "attribute"
-	EntityProperty  EntityType = "property"
-	EntityProduct   EntityType = "product"
-	EntityVariation EntityType = "variation"
-	EntityImage     EntityType = "image"
-	EntityText      EntityType = "text"
+	EntityCategory      EntityType = "category"
+	EntityAttribute      EntityType = "attribute"
+	EntityAttributeValue EntityType = "attribute_value"
+	EntityProperty       EntityType = "property"
+	EntityPropertyGroup EntityType = "property_group"
+	EntityProduct       EntityType = "product"
+	EntityVariation     EntityType = "variation"
+	EntityImage         EntityType = "image"
+	EntityText          EntityType = "text"
 )
 
 // PipelineStatus tracks the overall state of a pipeline run.

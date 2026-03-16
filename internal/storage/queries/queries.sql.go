@@ -61,6 +61,94 @@ func (q *Queries) CountMappingsByStatus(ctx context.Context, runID int64) ([]Cou
 	return items, nil
 }
 
+const createAttribute = `-- name: CreateAttribute :execlastid
+
+INSERT INTO attributes (job_id, name, attr_type, status)
+VALUES (?, ?, ?, ?)
+`
+
+type CreateAttributeParams struct {
+	JobID    int64  `json:"job_id"`
+	Name     string `json:"name"`
+	AttrType string `json:"attr_type"`
+	Status   string `json:"status"`
+}
+
+// Attributes (CRUD)
+func (q *Queries) CreateAttribute(ctx context.Context, arg CreateAttributeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createAttribute,
+		arg.JobID,
+		arg.Name,
+		arg.AttrType,
+		arg.Status,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createAttributeNameTranslation = `-- name: CreateAttributeNameTranslation :execlastid
+
+INSERT INTO attribute_name_translations (attribute_id, lang, name)
+VALUES (?, ?, ?)
+`
+
+type CreateAttributeNameTranslationParams struct {
+	AttributeID int64  `json:"attribute_id"`
+	Lang        string `json:"lang"`
+	Name        string `json:"name"`
+}
+
+// Attribute Name Translations
+func (q *Queries) CreateAttributeNameTranslation(ctx context.Context, arg CreateAttributeNameTranslationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createAttributeNameTranslation, arg.AttributeID, arg.Lang, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createAttributeValue = `-- name: CreateAttributeValue :execlastid
+INSERT INTO attribute_values (attribute_id, name, sort_order)
+VALUES (?, ?, ?)
+`
+
+type CreateAttributeValueParams struct {
+	AttributeID int64  `json:"attribute_id"`
+	Name        string `json:"name"`
+	SortOrder   int32  `json:"sort_order"`
+}
+
+func (q *Queries) CreateAttributeValue(ctx context.Context, arg CreateAttributeValueParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createAttributeValue, arg.AttributeID, arg.Name, arg.SortOrder)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createAttributeValueTranslation = `-- name: CreateAttributeValueTranslation :execlastid
+
+INSERT INTO attribute_value_translations (attribute_value_id, lang, name)
+VALUES (?, ?, ?)
+`
+
+type CreateAttributeValueTranslationParams struct {
+	AttributeValueID int64  `json:"attribute_value_id"`
+	Lang             string `json:"lang"`
+	Name             string `json:"name"`
+}
+
+// Attribute Value Translations
+func (q *Queries) CreateAttributeValueTranslation(ctx context.Context, arg CreateAttributeValueTranslationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createAttributeValueTranslation, arg.AttributeValueID, arg.Lang, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
 const createCategory = `-- name: CreateCategory :execlastid
 
 INSERT INTO categories (job_id, parent_id, name, level, sort_order, status)
@@ -85,6 +173,33 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 		arg.Level,
 		arg.SortOrder,
 		arg.Status,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createCategoryTranslation = `-- name: CreateCategoryTranslation :execlastid
+
+INSERT INTO category_translations (category_id, lang, name, description)
+VALUES (?, ?, ?, ?)
+`
+
+type CreateCategoryTranslationParams struct {
+	CategoryID  int64  `json:"category_id"`
+	Lang        string `json:"lang"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// Category Translations
+func (q *Queries) CreateCategoryTranslation(ctx context.Context, arg CreateCategoryTranslationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createCategoryTranslation,
+		arg.CategoryID,
+		arg.Lang,
+		arg.Name,
+		arg.Description,
 	)
 	if err != nil {
 		return 0, err
@@ -118,6 +233,33 @@ func (q *Queries) CreateEntityMapping(ctx context.Context, arg CreateEntityMappi
 		arg.Stage,
 		arg.Status,
 		arg.ErrorMessage,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createGraduatedPrice = `-- name: CreateGraduatedPrice :execlastid
+
+INSERT INTO variation_graduated_prices (variation_id, minimum_quantity, price, rrp)
+VALUES (?, ?, ?, ?)
+`
+
+type CreateGraduatedPriceParams struct {
+	VariationID     int64  `json:"variation_id"`
+	MinimumQuantity int32  `json:"minimum_quantity"`
+	Price           string `json:"price"`
+	Rrp             string `json:"rrp"`
+}
+
+// Graduated Prices
+func (q *Queries) CreateGraduatedPrice(ctx context.Context, arg CreateGraduatedPriceParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createGraduatedPrice,
+		arg.VariationID,
+		arg.MinimumQuantity,
+		arg.Price,
+		arg.Rrp,
 	)
 	if err != nil {
 		return 0, err
@@ -250,6 +392,123 @@ func (q *Queries) CreateProductCategory(ctx context.Context, arg CreateProductCa
 	return err
 }
 
+const createProperty = `-- name: CreateProperty :execlastid
+
+INSERT INTO properties (job_id, name, property_type, status)
+VALUES (?, ?, ?, ?)
+`
+
+type CreatePropertyParams struct {
+	JobID        int64  `json:"job_id"`
+	Name         string `json:"name"`
+	PropertyType string `json:"property_type"`
+	Status       string `json:"status"`
+}
+
+// Properties
+func (q *Queries) CreateProperty(ctx context.Context, arg CreatePropertyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createProperty,
+		arg.JobID,
+		arg.Name,
+		arg.PropertyType,
+		arg.Status,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createPropertyGroup = `-- name: CreatePropertyGroup :execlastid
+
+INSERT INTO property_groups (job_id, name, status)
+VALUES (?, ?, ?)
+`
+
+type CreatePropertyGroupParams struct {
+	JobID  int64  `json:"job_id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// Property Groups
+func (q *Queries) CreatePropertyGroup(ctx context.Context, arg CreatePropertyGroupParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createPropertyGroup, arg.JobID, arg.Name, arg.Status)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createPropertyGroupTranslation = `-- name: CreatePropertyGroupTranslation :execlastid
+
+INSERT INTO property_group_translations (property_group_id, lang, name)
+VALUES (?, ?, ?)
+`
+
+type CreatePropertyGroupTranslationParams struct {
+	PropertyGroupID int64  `json:"property_group_id"`
+	Lang            string `json:"lang"`
+	Name            string `json:"name"`
+}
+
+// Property Group Translations
+func (q *Queries) CreatePropertyGroupTranslation(ctx context.Context, arg CreatePropertyGroupTranslationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createPropertyGroupTranslation, arg.PropertyGroupID, arg.Lang, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createPropertyNameTranslation = `-- name: CreatePropertyNameTranslation :execlastid
+
+INSERT INTO property_name_translations (property_id, lang, name)
+VALUES (?, ?, ?)
+`
+
+type CreatePropertyNameTranslationParams struct {
+	PropertyID int64  `json:"property_id"`
+	Lang       string `json:"lang"`
+	Name       string `json:"name"`
+}
+
+// Property Name Translations
+func (q *Queries) CreatePropertyNameTranslation(ctx context.Context, arg CreatePropertyNameTranslationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createPropertyNameTranslation, arg.PropertyID, arg.Lang, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createPropertyOptionTranslation = `-- name: CreatePropertyOptionTranslation :execlastid
+
+INSERT INTO property_option_translations (property_id, option_key, lang, name)
+VALUES (?, ?, ?, ?)
+`
+
+type CreatePropertyOptionTranslationParams struct {
+	PropertyID int64  `json:"property_id"`
+	OptionKey  string `json:"option_key"`
+	Lang       string `json:"lang"`
+	Name       string `json:"name"`
+}
+
+// Property Option Translations
+func (q *Queries) CreatePropertyOptionTranslation(ctx context.Context, arg CreatePropertyOptionTranslationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createPropertyOptionTranslation,
+		arg.PropertyID,
+		arg.OptionKey,
+		arg.Lang,
+		arg.Name,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
 const createQualityScore = `-- name: CreateQualityScore :execlastid
 
 INSERT INTO quality_scores (product_id, job_id, overall, text_score, image_score, data_score, pass, details)
@@ -337,8 +596,8 @@ func (q *Queries) CreateText(ctx context.Context, arg CreateTextParams) (int64, 
 
 const createVariation = `-- name: CreateVariation :execlastid
 
-INSERT INTO variations (product_id, name, sku, price, currency, weight, weight_unit, barcode, status)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO variations (product_id, name, sku, price, rrp, b2b_price, b2b_rrp, currency, weight, weight_unit, sales_unit, length_mm, width_mm, height_mm, barcode, model, status)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateVariationParams struct {
@@ -346,10 +605,18 @@ type CreateVariationParams struct {
 	Name       string         `json:"name"`
 	Sku        string         `json:"sku"`
 	Price      sql.NullString `json:"price"`
+	Rrp        sql.NullString `json:"rrp"`
+	B2bPrice   sql.NullString `json:"b2b_price"`
+	B2bRrp     sql.NullString `json:"b2b_rrp"`
 	Currency   string         `json:"currency"`
 	Weight     sql.NullString `json:"weight"`
 	WeightUnit string         `json:"weight_unit"`
+	SalesUnit  string         `json:"sales_unit"`
+	LengthMm   int32          `json:"length_mm"`
+	WidthMm    int32          `json:"width_mm"`
+	HeightMm   int32          `json:"height_mm"`
 	Barcode    string         `json:"barcode"`
+	Model      string         `json:"model"`
 	Status     string         `json:"status"`
 }
 
@@ -360,11 +627,66 @@ func (q *Queries) CreateVariation(ctx context.Context, arg CreateVariationParams
 		arg.Name,
 		arg.Sku,
 		arg.Price,
+		arg.Rrp,
+		arg.B2bPrice,
+		arg.B2bRrp,
 		arg.Currency,
 		arg.Weight,
 		arg.WeightUnit,
+		arg.SalesUnit,
+		arg.LengthMm,
+		arg.WidthMm,
+		arg.HeightMm,
 		arg.Barcode,
+		arg.Model,
 		arg.Status,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createVariationAttribute = `-- name: CreateVariationAttribute :exec
+
+INSERT INTO variation_attributes (variation_id, attribute_id, attribute_value_id)
+VALUES (?, ?, ?)
+`
+
+type CreateVariationAttributeParams struct {
+	VariationID      int64 `json:"variation_id"`
+	AttributeID      int64 `json:"attribute_id"`
+	AttributeValueID int64 `json:"attribute_value_id"`
+}
+
+// Variation-Attribute Links
+func (q *Queries) CreateVariationAttribute(ctx context.Context, arg CreateVariationAttributeParams) error {
+	_, err := q.db.ExecContext(ctx, createVariationAttribute, arg.VariationID, arg.AttributeID, arg.AttributeValueID)
+	return err
+}
+
+const createVariationProperty = `-- name: CreateVariationProperty :execlastid
+
+INSERT INTO variation_properties (variation_id, property_id, value_text, value_int, value_float)
+VALUES (?, ?, ?, ?, ?)
+`
+
+type CreateVariationPropertyParams struct {
+	VariationID int64          `json:"variation_id"`
+	PropertyID  int64          `json:"property_id"`
+	ValueText   sql.NullString `json:"value_text"`
+	ValueInt    sql.NullInt64  `json:"value_int"`
+	ValueFloat  sql.NullString `json:"value_float"`
+}
+
+// Variation Properties
+func (q *Queries) CreateVariationProperty(ctx context.Context, arg CreateVariationPropertyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createVariationProperty,
+		arg.VariationID,
+		arg.PropertyID,
+		arg.ValueText,
+		arg.ValueInt,
+		arg.ValueFloat,
 	)
 	if err != nil {
 		return 0, err
@@ -390,6 +712,106 @@ WHERE shop_url = ?
 func (q *Queries) DeleteOAuthToken(ctx context.Context, shopUrl string) error {
 	_, err := q.db.ExecContext(ctx, deleteOAuthToken, shopUrl)
 	return err
+}
+
+const getAttributeByJobAndName = `-- name: GetAttributeByJobAndName :one
+SELECT id, job_id, name, attr_type, status, created_at
+FROM attributes
+WHERE job_id = ? AND name = ?
+LIMIT 1
+`
+
+type GetAttributeByJobAndNameParams struct {
+	JobID int64  `json:"job_id"`
+	Name  string `json:"name"`
+}
+
+func (q *Queries) GetAttributeByJobAndName(ctx context.Context, arg GetAttributeByJobAndNameParams) (Attribute, error) {
+	row := q.db.QueryRowContext(ctx, getAttributeByJobAndName, arg.JobID, arg.Name)
+	var i Attribute
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.Name,
+		&i.AttrType,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getAttributeValueByAttrAndName = `-- name: GetAttributeValueByAttrAndName :one
+SELECT id, attribute_id, name, sort_order
+FROM attribute_values
+WHERE attribute_id = ? AND name = ?
+LIMIT 1
+`
+
+type GetAttributeValueByAttrAndNameParams struct {
+	AttributeID int64  `json:"attribute_id"`
+	Name        string `json:"name"`
+}
+
+func (q *Queries) GetAttributeValueByAttrAndName(ctx context.Context, arg GetAttributeValueByAttrAndNameParams) (AttributeValue, error) {
+	row := q.db.QueryRowContext(ctx, getAttributeValueByAttrAndName, arg.AttributeID, arg.Name)
+	var i AttributeValue
+	err := row.Scan(
+		&i.ID,
+		&i.AttributeID,
+		&i.Name,
+		&i.SortOrder,
+	)
+	return i, err
+}
+
+const getCategory = `-- name: GetCategory :one
+SELECT id, job_id, parent_id, name, level, sort_order, status, created_at
+FROM categories
+WHERE id = ?
+`
+
+func (q *Queries) GetCategory(ctx context.Context, id int64) (Category, error) {
+	row := q.db.QueryRowContext(ctx, getCategory, id)
+	var i Category
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.ParentID,
+		&i.Name,
+		&i.Level,
+		&i.SortOrder,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getCategoryByJobAndName = `-- name: GetCategoryByJobAndName :one
+SELECT id, job_id, parent_id, name, level, sort_order, status, created_at
+FROM categories
+WHERE job_id = ? AND name = ?
+LIMIT 1
+`
+
+type GetCategoryByJobAndNameParams struct {
+	JobID int64  `json:"job_id"`
+	Name  string `json:"name"`
+}
+
+func (q *Queries) GetCategoryByJobAndName(ctx context.Context, arg GetCategoryByJobAndNameParams) (Category, error) {
+	row := q.db.QueryRowContext(ctx, getCategoryByJobAndName, arg.JobID, arg.Name)
+	var i Category
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.ParentID,
+		&i.Name,
+		&i.Level,
+		&i.SortOrder,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getEnrichmentCache = `-- name: GetEnrichmentCache :one
@@ -622,6 +1044,60 @@ func (q *Queries) GetProduct(ctx context.Context, id int64) (Product, error) {
 	return i, err
 }
 
+const getPropertyByJobAndName = `-- name: GetPropertyByJobAndName :one
+SELECT id, job_id, name, property_type, status, created_at
+FROM properties
+WHERE job_id = ? AND name = ?
+`
+
+type GetPropertyByJobAndNameParams struct {
+	JobID int64  `json:"job_id"`
+	Name  string `json:"name"`
+}
+
+type GetPropertyByJobAndNameRow struct {
+	ID           int64     `json:"id"`
+	JobID        int64     `json:"job_id"`
+	Name         string    `json:"name"`
+	PropertyType string    `json:"property_type"`
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetPropertyByJobAndName(ctx context.Context, arg GetPropertyByJobAndNameParams) (GetPropertyByJobAndNameRow, error) {
+	row := q.db.QueryRowContext(ctx, getPropertyByJobAndName, arg.JobID, arg.Name)
+	var i GetPropertyByJobAndNameRow
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.Name,
+		&i.PropertyType,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getPropertyGroupByJob = `-- name: GetPropertyGroupByJob :one
+SELECT id, job_id, name, status, created_at
+FROM property_groups
+WHERE job_id = ?
+LIMIT 1
+`
+
+func (q *Queries) GetPropertyGroupByJob(ctx context.Context, jobID int64) (PropertyGroup, error) {
+	row := q.db.QueryRowContext(ctx, getPropertyGroupByJob, jobID)
+	var i PropertyGroup
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.Name,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getQualityScoreByProduct = `-- name: GetQualityScoreByProduct :one
 SELECT id, product_id, job_id, overall, text_score, image_score, data_score, pass, details, created_at
 FROM quality_scores
@@ -700,6 +1176,112 @@ func (q *Queries) GetTextByProductFieldLang(ctx context.Context, arg GetTextByPr
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listAllPropertyOptionTranslations = `-- name: ListAllPropertyOptionTranslations :many
+SELECT id, property_id, option_key, lang, name
+FROM property_option_translations
+WHERE property_id = ?
+ORDER BY option_key, lang
+`
+
+func (q *Queries) ListAllPropertyOptionTranslations(ctx context.Context, propertyID int64) ([]PropertyOptionTranslation, error) {
+	rows, err := q.db.QueryContext(ctx, listAllPropertyOptionTranslations, propertyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PropertyOptionTranslation{}
+	for rows.Next() {
+		var i PropertyOptionTranslation
+		if err := rows.Scan(
+			&i.ID,
+			&i.PropertyID,
+			&i.OptionKey,
+			&i.Lang,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAttributeNameTranslations = `-- name: ListAttributeNameTranslations :many
+SELECT id, attribute_id, lang, name
+FROM attribute_name_translations
+WHERE attribute_id = ?
+ORDER BY lang
+`
+
+func (q *Queries) ListAttributeNameTranslations(ctx context.Context, attributeID int64) ([]AttributeNameTranslation, error) {
+	rows, err := q.db.QueryContext(ctx, listAttributeNameTranslations, attributeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AttributeNameTranslation{}
+	for rows.Next() {
+		var i AttributeNameTranslation
+		if err := rows.Scan(
+			&i.ID,
+			&i.AttributeID,
+			&i.Lang,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAttributeValueTranslations = `-- name: ListAttributeValueTranslations :many
+SELECT id, attribute_value_id, lang, name
+FROM attribute_value_translations
+WHERE attribute_value_id = ?
+ORDER BY lang
+`
+
+func (q *Queries) ListAttributeValueTranslations(ctx context.Context, attributeValueID int64) ([]AttributeValueTranslation, error) {
+	rows, err := q.db.QueryContext(ctx, listAttributeValueTranslations, attributeValueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AttributeValueTranslation{}
+	for rows.Next() {
+		var i AttributeValueTranslation
+		if err := rows.Scan(
+			&i.ID,
+			&i.AttributeValueID,
+			&i.Lang,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAttributeValuesByAttribute = `-- name: ListAttributeValuesByAttribute :many
@@ -842,6 +1424,42 @@ func (q *Queries) ListCategoryIDsByProduct(ctx context.Context, productID int64)
 	return items, nil
 }
 
+const listCategoryTranslations = `-- name: ListCategoryTranslations :many
+SELECT id, category_id, lang, name, description
+FROM category_translations
+WHERE category_id = ?
+ORDER BY lang
+`
+
+func (q *Queries) ListCategoryTranslations(ctx context.Context, categoryID int64) ([]CategoryTranslation, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoryTranslations, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CategoryTranslation{}
+	for rows.Next() {
+		var i CategoryTranslation
+		if err := rows.Scan(
+			&i.ID,
+			&i.CategoryID,
+			&i.Lang,
+			&i.Name,
+			&i.Description,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCreatedMappingsByRunAndType = `-- name: ListCreatedMappingsByRunAndType :many
 SELECT id, run_id, local_id, plenty_id, entity_type, stage, status, error_message, created_at, updated_at
 FROM entity_mappings
@@ -878,6 +1496,36 @@ func (q *Queries) ListCreatedMappingsByRunAndType(ctx context.Context, arg ListC
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDistinctPropertyValues = `-- name: ListDistinctPropertyValues :many
+SELECT DISTINCT vp.value_text
+FROM variation_properties vp
+WHERE vp.property_id = ? AND vp.value_text IS NOT NULL
+ORDER BY vp.value_text
+`
+
+func (q *Queries) ListDistinctPropertyValues(ctx context.Context, propertyID int64) ([]sql.NullString, error) {
+	rows, err := q.db.QueryContext(ctx, listDistinctPropertyValues, propertyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []sql.NullString{}
+	for rows.Next() {
+		var value_text sql.NullString
+		if err := rows.Scan(&value_text); err != nil {
+			return nil, err
+		}
+		items = append(items, value_text)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1002,6 +1650,42 @@ func (q *Queries) ListFailedQualityScoresByJob(ctx context.Context, jobID int64)
 			&i.Pass,
 			&i.Details,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGraduatedPricesByVariation = `-- name: ListGraduatedPricesByVariation :many
+SELECT id, variation_id, minimum_quantity, price, rrp
+FROM variation_graduated_prices
+WHERE variation_id = ?
+ORDER BY minimum_quantity
+`
+
+func (q *Queries) ListGraduatedPricesByVariation(ctx context.Context, variationID int64) ([]VariationGraduatedPrice, error) {
+	rows, err := q.db.QueryContext(ctx, listGraduatedPricesByVariation, variationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VariationGraduatedPrice{}
+	for rows.Next() {
+		var i VariationGraduatedPrice
+		if err := rows.Scan(
+			&i.ID,
+			&i.VariationID,
+			&i.MinimumQuantity,
+			&i.Price,
+			&i.Rrp,
 		); err != nil {
 			return nil, err
 		}
@@ -1227,15 +1911,24 @@ WHERE job_id = ?
 ORDER BY created_at
 `
 
-func (q *Queries) ListPropertiesByJob(ctx context.Context, jobID int64) ([]Property, error) {
+type ListPropertiesByJobRow struct {
+	ID           int64     `json:"id"`
+	JobID        int64     `json:"job_id"`
+	Name         string    `json:"name"`
+	PropertyType string    `json:"property_type"`
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (q *Queries) ListPropertiesByJob(ctx context.Context, jobID int64) ([]ListPropertiesByJobRow, error) {
 	rows, err := q.db.QueryContext(ctx, listPropertiesByJob, jobID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Property{}
+	items := []ListPropertiesByJobRow{}
 	for rows.Next() {
-		var i Property
+		var i ListPropertiesByJobRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.JobID,
@@ -1243,6 +1936,117 @@ func (q *Queries) ListPropertiesByJob(ctx context.Context, jobID int64) ([]Prope
 			&i.PropertyType,
 			&i.Status,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPropertyGroupTranslations = `-- name: ListPropertyGroupTranslations :many
+SELECT id, property_group_id, lang, name
+FROM property_group_translations
+WHERE property_group_id = ?
+ORDER BY lang
+`
+
+func (q *Queries) ListPropertyGroupTranslations(ctx context.Context, propertyGroupID int64) ([]PropertyGroupTranslation, error) {
+	rows, err := q.db.QueryContext(ctx, listPropertyGroupTranslations, propertyGroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PropertyGroupTranslation{}
+	for rows.Next() {
+		var i PropertyGroupTranslation
+		if err := rows.Scan(
+			&i.ID,
+			&i.PropertyGroupID,
+			&i.Lang,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPropertyNameTranslations = `-- name: ListPropertyNameTranslations :many
+SELECT id, property_id, lang, name
+FROM property_name_translations
+WHERE property_id = ?
+ORDER BY lang
+`
+
+func (q *Queries) ListPropertyNameTranslations(ctx context.Context, propertyID int64) ([]PropertyNameTranslation, error) {
+	rows, err := q.db.QueryContext(ctx, listPropertyNameTranslations, propertyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PropertyNameTranslation{}
+	for rows.Next() {
+		var i PropertyNameTranslation
+		if err := rows.Scan(
+			&i.ID,
+			&i.PropertyID,
+			&i.Lang,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPropertyOptionTranslations = `-- name: ListPropertyOptionTranslations :many
+SELECT id, property_id, option_key, lang, name
+FROM property_option_translations
+WHERE property_id = ? AND option_key = ?
+ORDER BY lang
+`
+
+type ListPropertyOptionTranslationsParams struct {
+	PropertyID int64  `json:"property_id"`
+	OptionKey  string `json:"option_key"`
+}
+
+func (q *Queries) ListPropertyOptionTranslations(ctx context.Context, arg ListPropertyOptionTranslationsParams) ([]PropertyOptionTranslation, error) {
+	rows, err := q.db.QueryContext(ctx, listPropertyOptionTranslations, arg.PropertyID, arg.OptionKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PropertyOptionTranslation{}
+	for rows.Next() {
+		var i PropertyOptionTranslation
+		if err := rows.Scan(
+			&i.ID,
+			&i.PropertyID,
+			&i.OptionKey,
+			&i.Lang,
+			&i.Name,
 		); err != nil {
 			return nil, err
 		}
@@ -1415,8 +2219,90 @@ func (q *Queries) ListTextsByProduct(ctx context.Context, productID int64) ([]Te
 	return items, nil
 }
 
+const listVariationAttributesByVariation = `-- name: ListVariationAttributesByVariation :many
+SELECT variation_id, attribute_id, attribute_value_id
+FROM variation_attributes
+WHERE variation_id = ?
+ORDER BY attribute_id
+`
+
+func (q *Queries) ListVariationAttributesByVariation(ctx context.Context, variationID int64) ([]VariationAttribute, error) {
+	rows, err := q.db.QueryContext(ctx, listVariationAttributesByVariation, variationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VariationAttribute{}
+	for rows.Next() {
+		var i VariationAttribute
+		if err := rows.Scan(&i.VariationID, &i.AttributeID, &i.AttributeValueID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVariationPropertiesByVariation = `-- name: ListVariationPropertiesByVariation :many
+SELECT vp.id, vp.variation_id, vp.property_id, vp.value_text, vp.value_int, vp.value_float,
+       p.name as property_name, p.property_type
+FROM variation_properties vp
+JOIN properties p ON p.id = vp.property_id
+WHERE vp.variation_id = ?
+ORDER BY p.name
+`
+
+type ListVariationPropertiesByVariationRow struct {
+	ID           int64          `json:"id"`
+	VariationID  int64          `json:"variation_id"`
+	PropertyID   int64          `json:"property_id"`
+	ValueText    sql.NullString `json:"value_text"`
+	ValueInt     sql.NullInt64  `json:"value_int"`
+	ValueFloat   sql.NullString `json:"value_float"`
+	PropertyName string         `json:"property_name"`
+	PropertyType string         `json:"property_type"`
+}
+
+func (q *Queries) ListVariationPropertiesByVariation(ctx context.Context, variationID int64) ([]ListVariationPropertiesByVariationRow, error) {
+	rows, err := q.db.QueryContext(ctx, listVariationPropertiesByVariation, variationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListVariationPropertiesByVariationRow{}
+	for rows.Next() {
+		var i ListVariationPropertiesByVariationRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.VariationID,
+			&i.PropertyID,
+			&i.ValueText,
+			&i.ValueInt,
+			&i.ValueFloat,
+			&i.PropertyName,
+			&i.PropertyType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVariationsByProduct = `-- name: ListVariationsByProduct :many
-SELECT id, product_id, name, sku, price, currency, weight, weight_unit, barcode, status, created_at
+SELECT id, product_id, name, sku, price, currency, weight, weight_unit, barcode, status, created_at, sales_unit, rrp, length_mm, width_mm, height_mm, b2b_price, b2b_rrp, model
 FROM variations
 WHERE product_id = ?
 ORDER BY created_at
@@ -1443,6 +2329,14 @@ func (q *Queries) ListVariationsByProduct(ctx context.Context, productID int64) 
 			&i.Barcode,
 			&i.Status,
 			&i.CreatedAt,
+			&i.SalesUnit,
+			&i.Rrp,
+			&i.LengthMm,
+			&i.WidthMm,
+			&i.HeightMm,
+			&i.B2bPrice,
+			&i.B2bRrp,
+			&i.Model,
 		); err != nil {
 			return nil, err
 		}
@@ -1455,6 +2349,100 @@ func (q *Queries) ListVariationsByProduct(ctx context.Context, productID int64) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const listVariationsWithoutPropertiesByJob = `-- name: ListVariationsWithoutPropertiesByJob :many
+
+SELECT v.id as variation_id, v.product_id, v.name as variation_name,
+       p.name as product_name, p.product_type
+FROM variations v
+JOIN products p ON v.product_id = p.id
+WHERE p.job_id = ?
+AND NOT EXISTS (SELECT 1 FROM variation_properties vp WHERE vp.variation_id = v.id)
+ORDER BY v.id
+`
+
+type ListVariationsWithoutPropertiesByJobRow struct {
+	VariationID   int64  `json:"variation_id"`
+	ProductID     int64  `json:"product_id"`
+	VariationName string `json:"variation_name"`
+	ProductName   string `json:"product_name"`
+	ProductType   string `json:"product_type"`
+}
+
+// Variations Without Properties (for backfill)
+func (q *Queries) ListVariationsWithoutPropertiesByJob(ctx context.Context, jobID int64) ([]ListVariationsWithoutPropertiesByJobRow, error) {
+	rows, err := q.db.QueryContext(ctx, listVariationsWithoutPropertiesByJob, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListVariationsWithoutPropertiesByJobRow{}
+	for rows.Next() {
+		var i ListVariationsWithoutPropertiesByJobRow
+		if err := rows.Scan(
+			&i.VariationID,
+			&i.ProductID,
+			&i.VariationName,
+			&i.ProductName,
+			&i.ProductType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lookupCategoryRegistry = `-- name: LookupCategoryRegistry :one
+
+SELECT id, name, parent_name, plenty_id, created_at
+FROM category_registry
+WHERE name = ? AND parent_name = ?
+`
+
+type LookupCategoryRegistryParams struct {
+	Name       string `json:"name"`
+	ParentName string `json:"parent_name"`
+}
+
+// Category Registry (cross-job reuse)
+func (q *Queries) LookupCategoryRegistry(ctx context.Context, arg LookupCategoryRegistryParams) (CategoryRegistry, error) {
+	row := q.db.QueryRowContext(ctx, lookupCategoryRegistry, arg.Name, arg.ParentName)
+	var i CategoryRegistry
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ParentName,
+		&i.PlentyID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const registerCategory = `-- name: RegisterCategory :execlastid
+INSERT INTO category_registry (name, parent_name, plenty_id)
+VALUES (?, ?, ?)
+`
+
+type RegisterCategoryParams struct {
+	Name       string `json:"name"`
+	ParentName string `json:"parent_name"`
+	PlentyID   int64  `json:"plenty_id"`
+}
+
+func (q *Queries) RegisterCategory(ctx context.Context, arg RegisterCategoryParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, registerCategory, arg.Name, arg.ParentName, arg.PlentyID)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
 }
 
 const resetFailedMappingsForRetry = `-- name: ResetFailedMappingsForRetry :exec
@@ -1542,6 +2530,20 @@ func (q *Queries) UpdatePipelineRunStatus(ctx context.Context, arg UpdatePipelin
 		arg.ErrorMessage,
 		arg.ID,
 	)
+	return err
+}
+
+const updatePropertyGroupID = `-- name: UpdatePropertyGroupID :exec
+UPDATE properties SET property_group_id = ? WHERE id = ?
+`
+
+type UpdatePropertyGroupIDParams struct {
+	PropertyGroupID sql.NullInt64 `json:"property_group_id"`
+	ID              int64         `json:"id"`
+}
+
+func (q *Queries) UpdatePropertyGroupID(ctx context.Context, arg UpdatePropertyGroupIDParams) error {
+	_, err := q.db.ExecContext(ctx, updatePropertyGroupID, arg.PropertyGroupID, arg.ID)
 	return err
 }
 

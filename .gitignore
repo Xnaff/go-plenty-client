@@ -3,8 +3,9 @@
 # Binary output
 bin/
 
-# Environment files
+# Environment & config files
 .env
+config.yaml
 
 # Executables
 *.exe
